@@ -1,3 +1,31 @@
 # docker-compose.yml
 #version=3.8
 
+
+services:
+
+  # influx-db:
+  #   image: influxdb:3-core
+  #   port:
+  #     - 
+
+
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: portainer
+    ports:
+      - "8000:8000"
+      - "9000:${PORTAINER_HTTP_PORT}"
+      - "9443:${PORTAINER_HTTPS_PORT}"
+    restart: always
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer:/data
+    environment:
+      - TZ=${TZ}
+      - PORTAINER_HTTP_PORT=${PORTAINER_HTTP_PORT}
+      - PORTAINER_ADMIN_PASSWORD=${ADMIN_PASSWORD} 
+
+volumes:
+  portainer:
+    external: true

@@ -63,3 +63,5 @@ Thumbs.db
 vscode-server.tar.gz
 .dotnet/*
 docs/test.md
+.env
+.docker/config.json
