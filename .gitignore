@@ -40,3 +40,8 @@ venv.bak/
 # OS specific files
 .DS_Store
 Thumbs.db
+
+
+#Others
+.bash_history
+.bash_logout
