@@ -45,3 +45,17 @@ Thumbs.db
 #Others
 .bash_history
 .bash_logout
+.sudo_as_admin_successful
+.profile
+.lesshst
+.gitconfig
+.bashrc
+.bash_logout
+.bash_history
+.Xauthority
+.vscode-server/*
+.vscode-server
+.ssh
+.ssh/*
+.cache
+.cache/*
