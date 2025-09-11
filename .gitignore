@@ -62,3 +62,4 @@ Thumbs.db
 .wget-hsts
 vscode-server.tar.gz
 .dotnet/*
+docs/test.md
