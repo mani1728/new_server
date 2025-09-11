@@ -1,0 +1,67 @@
+# Byte-code/object files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Environment folders
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE / Editor specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+
+#Others
+.bash_history
+.bash_logout
+.sudo_as_admin_successful
+.profile
+.lesshst
+.gitconfig
+.bashrc
+.bash_logout
+.bash_history
+.Xauthority
+.vscode-server/*
+.vscode-server
+.ssh
+.ssh/*
+.cache
+.cache/*
+.wget-hsts
+vscode-server.tar.gz
+.dotnet/*
+docs/test.md
+.env
+.docker/config.json
