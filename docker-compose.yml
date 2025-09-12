@@ -6,9 +6,13 @@ services:
     container_name: portainer
     ports:
       - "8000:8000"  # برای ارتباط Agentها
-      - "9000:9000"   # پورت HTTP
+      # - "9000:9000"   # پورت HTTP
       - "9443:9443"   # پورت HTTPS
     restart: always
+    depends_on:
+      - dns-srv
+      - ntp-srv
+      - influx-db
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - portainer:/data
@@ -21,6 +25,8 @@ services:
       - LOG_LEVEL=${LOG_LEVEL}
     networks:
       - internal_net
+    dns:
+      - 172.19.0.2
 
   ntp-srv:
     image: cturra/ntp:latest
@@ -28,6 +34,8 @@ services:
     restart: always
     ports:
       - "123:123/udp"
+    depends_on:
+      - dns-srv
     cap_add:
       - SYS_TIME
     volumes:
@@ -35,7 +43,7 @@ services:
     environment:
       - NTP_SERVERS=${NTP_SERVERS}
       - TZ=${TZ}
-      - LOG_LEVEL=${LOG_LEVEL:-0}
+      - LOG_LEVEL=${LOG_LEVEL_NTP:-0}
       - ALLOW_NETWORK=${ALLOW_NETWORK:-0.0.0.0/0}
 
     read_only: true
@@ -50,13 +58,199 @@ services:
 
     networks:
       - internal_net
+    dns:
+      - 172.19.0.2
+
+  influx-db:
+    image: influxdb:3.4.1-core
+    container_name: influx-db
+    restart: always
+    ports:
+      - "8086:8086"  # پورت HTTP برای ارتباط با کلاینت‌ها
+      # - "8181:8181"  # پورت API داخلی (برای ارتباط بین نودها)
+    depends_on:
+      - dns-srv
+      - ntp-srv
+    command: >
+      serve 
+      --node-id influxdb-01 
+      --object-store file 
+      --data-dir /var/lib/influxdb3
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=${INFLUXDB_ADMIN_USER}
+      - DOCKER_INFLUXDB_INIT_PASSWORD=${INFLUXDB_ADMIN_PASSWORD}
+      - DOCKER_INFLUXDB_INIT_ORG=${INFLUXDB_ORG}
+      - DOCKER_INFLUXDB_INIT_BUCKET=${INFLUXDB_BUCKET}
+      - INFLUXDB_HTTP_FLUX_ENABLED=true
+      - TZ=${TZ}
+      - INFLUXD_LOG_LEVEL=${LOG_LEVEL:-info}
+    volumes:
+      - influx-db:/var/lib/influxdb3
+    networks:
+      - internal_net
+      - db_net
+    dns:
+      - 172.19.0.2
+
+  dns-srv:
+    image: klutchell/unbound:latest
+    container_name: DNS-SRV
+    volumes:
+      - DNS-SRV:/opt/unbound/etc/unbound
+      - DNS-SRV:/etc/unbound:ro
+    environment:
+      - TZ=${TZ}
+    networks:
+      - internal_net
+    restart: always
+
+  fleet-server:
+    image: elastic/elastic-agent:9.1.3
+    container_name: fleet-server
+    ports:
+      - "8220:8220"
+    environment:
+      FLEET_SERVER_ENABLE: "true"
+      FLEET_SERVER_HOST: "0.0.0.0"
+      FLEET_SERVER_PORT: "8220"
+
+      # اتصال به ES (بدون TLS)
+      FLEET_SERVER_ELASTICSEARCH_HOST: "http://elasticsearch:9200"
+      FLEET_SERVER_ELASTICSEARCH_INSECURE: "true"
+
+      # HTTP اجباری برای Fleet Server
+      FLEET_SERVER_INSECURE_HTTP: "true"
+
+      # توکن سرویس که از ES گرفتی
+      FLEET_SERVER_SERVICE_TOKEN: "${FLEET_SERVER_SERVICE_TOKEN}"
+
+      # ستاپ اولیه Fleet در Kibana
+      KIBANA_FLEET_SETUP: "true"
+      KIBANA_HOST: "http://kibana:5601"
+      KIBANA_INSECURE: "true"
+      KIBANA_FLEET_SERVICE_TOKEN: "${FLEET_SERVER_SERVICE_TOKEN}"
+
+      TZ: "${TZ}"
+
+    depends_on:
+      elasticsearch:
+        condition: service_started
+        required: true
+      kibana:
+        condition: service_started
+        required: true
+    networks:
+      - internal_net
+    dns:
+      - 172.19.0.2
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8220/api/status >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+
+  elastic-agent:
+    image: elastic/elastic-agent:9.1.3
+    container_name: elastic-agent
+    environment:
+      - FLEET_ENROLL=1
+      - FLEET_URL=http://fleet-server:8220
+      - FLEET_INSECURE=true             # چون Fleet Server بدون TLS است
+      - FLEET_ENROLLMENT_TOKEN=${ENROLLMENT_TOKEN}
+      - TZ=${TZ}
+    volumes:
+      # برای لاگ‌های داکر و متریک‌ها:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      # برای System integration (لاگ‌های syslog/journald در صورت نیاز):
+      - /var/log:/var/log:ro
+    depends_on:
+      fleet-server:
+        condition: service_started
+        required: true
+    networks:
+      - internal_net
+    dns:
+      - 172.19.0.2
+    restart: always
+
+  elasticsearch:
+    image: elasticsearch:9.1.3
+    container_name: elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=true
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+      - xpack.security.http.ssl.enabled=false
+      - ES_JAVA_OPTS=-Xms1g -Xmx1g
+      - TZ=${TZ}
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    ports:
+      - "9200:9200"
+    depends_on:
+      - dns-srv
+      - ntp-srv
+    volumes:
+      - elasticsearch:/usr/share/elasticsearch/data
+    networks:
+      - internal_net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200 >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    restart: always
+    dns:
+      - 172.19.0.2
+
+  kibana:
+    image: kibana:9.1.3
+    container_name: kibana
+    depends_on:
+      - elasticsearch
+    environment:
+      - ELASTICSEARCH_HOSTS=${ELASTIC_HOST}
+      # - ELASTICSEARCH_USERNAME=${ELASTIC_USERNAME}
+      # - ELASTICSEARCH_PASSWORD=${ELASTIC_PASSWORD}
+      - TZ=${TZ}
+      - ELASTICSEARCH_SERVICEACCOUNTTOKEN=${KIBANA_SA_TOKEN}
+          # کلیدهای ضروری:
+      - XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY=${KIBANA_ENCRYPTION_KEY}
+      # پیشنهاد می‌کنم این دوتا هم ست کنی که بعداً گیر ندی:
+      - XPACK_SECURITY_ENCRYPTIONKEY=${KIBANA_SECURITY_KEY}
+      - XPACK_REPORTING_ENCRYPTIONKEY=${KIBANA_REPORTING_KEY}
+    ports:
+      - "5601:5601"
+    networks:
+      - internal_net
+    dns:
+      - 172.19.0.2
+    restart: always
+
 
 volumes:
   portainer:
     external: true
   NTP-SRV:
     external: true
+  influx-db:
+    external: true
+  DNS-SRV:
+    external: true
+  elasticsearch:
+    external: true
 
 networks:
   internal_net:
+    external: true
+  db_net:
     external: true
