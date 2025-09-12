@@ -160,6 +160,8 @@ services:
       - FLEET_URL=http://fleet-server:8220
       - FLEET_INSECURE=true             # چون Fleet Server بدون TLS است
       - FLEET_ENROLLMENT_TOKEN=${ENROLLMENT_TOKEN}
+      - ELASTICSEARCH_HOST=http://elasticsearch:9200
+      - KIBANA_HOST=http://kibana:5601
       - TZ=${TZ}
     volumes:
       # برای لاگ‌های داکر و متریک‌ها:
