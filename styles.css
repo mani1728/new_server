@@ -1,0 +1,33 @@
+# Docker Containers
+
+در جدول زیر نام کانتینرها و ایمیج های مورد استفاده به همراه تگ ها قابل مشاهده می‌باشند.
+
+<link rel="stylesheet" href="../path/to/your/styles.css">
+
+<table class="docker-table">
+  <thead>
+    <tr>
+      <th>Number</th>
+      <th>Container Name</th>
+      <th>Image Repo Name</th>
+      <th>Image Name</th>
+      <th>Tag</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>1</td>
+      <td>portainer</td>
+      <td>portainer</td>
+      <td>portainer-ce</td>
+      <td>latest</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td>NTP-SRV</td>
+      <td>cturra</td>
+      <td>ntp</td>
+      <td>latest</td>
+    </tr>
+  </tbody>
+</table>
