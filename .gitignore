@@ -65,3 +65,5 @@ vscode-server.tar.gz
 docs/test.md
 .env
 .docker/config.json
+.env_old
+docker-compose_old.yml
