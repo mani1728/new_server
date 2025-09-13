@@ -6,9 +6,13 @@ services:
     container_name: portainer
     ports:
       - "8000:8000"  # برای ارتباط Agentها
-      - "9000:9000"   # پورت HTTP
+      # - "9000:9000"   # پورت HTTP
       - "9443:9443"   # پورت HTTPS
     restart: always
+    depends_on:
+      - dns-srv
+      - ntp-srv
+      - influx-db
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - portainer:/data
@@ -22,39 +26,8 @@ services:
     networks:
       - internal_net
 
-  ntp-srv:
-    image: cturra/ntp:latest
-    container_name: NTP-SRV
-    restart: always
-    ports:
-      - "123:123/udp"
-    cap_add:
-      - SYS_TIME
-    volumes:
-      - NTP-SRV:/var/lib/chrony
-    environment:
-      - NTP_SERVERS=${NTP_SERVERS}
-      - TZ=${TZ}
-      - LOG_LEVEL=${LOG_LEVEL:-0}
-      - ALLOW_NETWORK=${ALLOW_NETWORK:-0.0.0.0/0}
-
-    read_only: true
-    tmpfs:
-      - /etc/chrony:rw,mode=1750
-      - /run/chrony:rw,mode=1750
-    healthcheck:
-      test: ["CMD", "chronyc", "tracking"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-    networks:
-      - internal_net
-
 volumes:
   portainer:
-    external: true
-  NTP-SRV:
     external: true
 
 networks:
