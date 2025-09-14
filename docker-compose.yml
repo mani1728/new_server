@@ -29,9 +29,6 @@ services:
     ports:
       # - "8086:8086"  # پورت HTTP برای ارتباط با کلاینت‌ها
       - "8181:8181"  # پورت API داخلی (برای ارتباط بین نودها)
-    depends_on:
-      - dns-srv
-      - ntp-srv
     command: >
       serve 
       --node-id influxdb-01 
