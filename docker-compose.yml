@@ -240,9 +240,98 @@ services:
     networks:
       - internal_net
     restart: always
+  
+  # (اختیاری) فیکس‌پرمیژن والیوم دیتا تا uid/gid دلخواه
+  fix-perms:
+    image: alpine:3.20
+    command: ["/bin/sh","-lc","adduser -D -u ${KAFKA_UID:-1000} app && chown -R ${KAFKA_UID:-1000}:${KAFKA_GID:-1000} /var/lib/kafka/data || true"]
+    user: "0:0"
+    volumes:
+      - kafka:/var/lib/kafka/data
+    networks: [internal_net]
+    restart: "no"
+
+  kafka:
+    image: apache/kafka:latest
+    container_name: kafka
+    # اجرای Kafka با KRaft تک‌نودی + سه listener
+    environment:
+      TZ: ${TZ}
+      # نقش‌ها/نود آیدی/رأی‌دهندگان
+      KAFKA_PROCESS_ROLES: ${KAFKA_PROCESS_ROLES}
+      KAFKA_NODE_ID: ${KAFKA_NODE_ID}
+      KAFKA_CONTROLLER_QUORUM_VOTERS: ${KAFKA_CONTROLLER_QUORUM_VOTERS}
+
+      # سه listener: داخل، بیرون، و کنترلر
+      KAFKA_LISTENERS: "PLAINTEXT://:9092,PLAINTEXT_HOST://:9094,CONTROLLER://:9093"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092,PLAINTEXT_HOST://${HOST_IP}:${KAFKA_PORT_EXTERNAL}"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT,CONTROLLER:PLAINTEXT"
+      KAFKA_CONTROLLER_LISTENER_NAMES: ${KAFKA_CONTROLLER_LISTENER_NAMES}
+      KAFKA_INTER_BROKER_LISTENER_NAME: ${KAFKA_INTER_BROKER_LISTENER_NAME}
+
+      # مسیر دیتا و تنظیمات خوشه KRaft
+      KAFKA_LOG_DIRS: ${KAFKA_LOG_DIRS}
+      CLUSTER_ID: ${CLUSTER_ID}
+
+      # سایر تنظیمات مفید تک‌نودی
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: ${KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR}
+      KAFKA_DEFAULT_REPLICATION_FACTOR: ${KAFKA_DEFAULT_REPLICATION_FACTOR}
+      KAFKA_MIN_INSYNC_REPLICAS: ${KAFKA_MIN_INSYNC_REPLICAS}
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: ${KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS}
+      KAFKA_NUM_PARTITIONS: ${KAFKA_NUM_PARTITIONS}
+      KAFKA_LOG4J_ROOT_LOGLEVEL: ${KAFKA_LOG4J_ROOT_LOGLEVEL}
+    # اگر می‌خوای uid/gid خاصی روی فایل‌ها اعمال شه
+    user: "${KAFKA_UID:-1000}:${KAFKA_GID:-1000}"
+    depends_on:
+      fix-perms:
+        condition: service_completed_successfully
+    volumes:
+      - kafka:${KAFKA_LOG_DIRS}
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    ports:
+      - "${KAFKA_PORT_PLAINTEXT}:9092"  # داخل داکر
+      - "${KAFKA_PORT_CONTROLLER}:9093" # کنترلر KRaft
+      - "${KAFKA_PORT_EXTERNAL}:9094"   # بیرونی برای کلاینت‌های خارج از داکر
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
+    restart: unless-stopped
+    networks: [internal_net]
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      TZ: ${TZ}
+      KAFKA_CLUSTERS_0_NAME: "local"
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: "kafka:9092"
+      DYNAMIC_CONFIG_ENABLED: "true"
+    ports:
+      - "${KAFKA_UI_PORT}:8080"
+    volumes:
+      # صرفاً برای نگه‌داری فایل‌های کانفیگ/آپلود احتمالی (الزامی نیست)
+      - kafka-ui:/etc/kafkaui
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    restart: unless-stopped
+    networks: [internal_net]
+
+
+
 
 # --- تعریف والیوم‌های نام‌دار (همه external چون قبلاً ساختی) ---
 volumes:
+  kafka:
+    external: true
+  kafka-ui:
+    external: true
   portainer:
     external: true
   elasticsearch:
