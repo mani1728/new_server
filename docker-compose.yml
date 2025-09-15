@@ -115,9 +115,41 @@ services:
     # این دستور حالت توزیع‌شده (Distributed) را با 10 دیسک فعال می‌کند
     command: server /data1 /data2 /data3 /data4 /data5 /data6 /data7 /data8 /data9 /data10 --console-address ":9001"
 
+  elasticsearch:
+    image: elasticsearch:9.1.3
+    container_name: elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=true
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+      - xpack.security.http.ssl.enabled=false
+      - ES_JAVA_OPTS=-Xms1g -Xmx1g
+      - TZ=${TZ}
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    ports:
+      - "9200:9200"
+    volumes:
+      - elasticsearch:/usr/share/elasticsearch/data
+    networks:
+      - internal_net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200 >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    restart: always
+
 # --- تعریف والیوم‌های نام‌دار (همه external چون قبلاً ساختی) ---
 volumes:
   portainer:
+    external: true
+  elasticsearch:
     external: true
   influx-db:
     external: true
