@@ -302,6 +302,31 @@ else
   # اگر هیچ کلیدی نیست، یکی بساز (برای نسخه‌هایی که نیاز به کلید دارند)
   kb_api POST "/api/fleet/message_signing/rotate" >/dev/null 2>&1 || true
 fi
+# =========================
+# 4.3) Fix: Ensure Fleet Server hosts via new API (9.1+)
+# =========================
+# --- Ensure Fleet Server hosts via new API (9.1+) ---
+log "Ensuring Fleet Server hosts (9.1+ API)..."
+hosts_json="$(kb_api GET "/api/fleet/fleet_server_hosts")"
+if command -v jq >/dev/null 2>&1; then
+  count="$(printf "%s" "$hosts_json" | jq '.items | length')"
+else
+  count="$(printf "%s" "$hosts_json" | grep -c '"id"')"  # fallback ساده
+fi
+
+if [ "${count:-0}" -eq 0 ]; then
+  kb_api POST "/api/fleet/fleet_server_hosts" \
+'{"name":"default","host_urls":["http://fleet-server:8220","http://localhost:8220"]}' >/dev/null || true
+else
+  if command -v jq >/dev/null 2>&1; then
+    hid="$(printf "%s" "$hosts_json" | jq -r '.items[0].id')"
+  else
+    hid="$(printf "%s" "$hosts_json" | sed -nE 's/.*"id":"([^"]+)".*/\1/p' | head -n1)"
+  fi
+  [ -n "$hid" ] && kb_api PUT "/api/fleet/fleet_server_hosts/${hid}" \
+'{"name":"default","host_urls":["http://fleet-server:8220","http://localhost:8220"]}' >/dev/null || true
+fi
+
 # --- End Fix ---
 
 # =========================
