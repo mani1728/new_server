@@ -85,6 +85,36 @@ services:
     networks:
       - internal_net   # روی همین شبکه، سرویس influx-db با نام سرویس قابل دسترس است
 
+  minio:
+    image: minio/minio:latest
+    container_name: minIO
+    ports:
+      # پورت API برای دسترسی برنامه‌ها
+      - "9000:9000"
+      # پورت کنسول وب برای مدیریت
+      - "9001:9001"
+    environment:
+      # !!! هشدار: این مقادیر را حتما عوض کنید !!!
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    restart: always
+    networks:
+      - internal_net
+    volumes:
+      # اتصال 10 والیوم به 10 مسیر مختلف در داخل کانتینر
+      - minio-data1:/data1
+      - minio-data2:/data2
+      - minio-data3:/data3
+      - minio-data4:/data4
+      - minio-data5:/data5
+      - minio-data6:/data6
+      - minio-data7:/data7
+      - minio-data8:/data8
+      - minio-data9:/data9
+      - minio-data10:/data10
+    # این دستور حالت توزیع‌شده (Distributed) را با 10 دیسک فعال می‌کند
+    command: server /data1 /data2 /data3 /data4 /data5 /data6 /data7 /data8 /data9 /data10 --console-address ":9001"
+
 # --- تعریف والیوم‌های نام‌دار (همه external چون قبلاً ساختی) ---
 volumes:
   portainer:
@@ -92,6 +122,26 @@ volumes:
   influx-db:
     external: true
   influxdb3-explorer:
+    external: true
+  minio-data1:
+    external: true
+  minio-data2:
+    external: true
+  minio-data3:
+    external: true
+  minio-data4:
+    external: true
+  minio-data5:
+    external: true
+  minio-data6:
+    external: true
+  minio-data7:
+    external: true
+  minio-data8:
+    external: true
+  minio-data9:
+    external: true
+  minio-data10:
     external: true
 
 # --- شبکه‌ها (external چون قبلاً ساختی) ---

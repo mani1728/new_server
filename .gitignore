@@ -67,3 +67,4 @@ docs/test.md
 .docker/config.json
 .env_old
 docker-compose_old.yml
+create_volumes.sh
