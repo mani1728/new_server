@@ -1,18 +1,18 @@
-#version: '3.8'
+# version: "3.9"  # نسخه فرمت Compose
 
 services:
+  # --- Portainer (اختیاری: برای مدیریت Docker) ---
   portainer:
     image: portainer/portainer-ce:latest
     container_name: portainer
-    ports:
-      # - "8000:8000"  # برای ارتباط Agentها
-      # - "9000:9000"   # پورت HTTP
-      - "9443:9443"   # پورت HTTPS
     restart: always
+    ports:
+      # - "9000:9000"            # HTTP (در صورت نیاز)
+      - "9443:9443"              # HTTPS UI
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - portainer:/data
-      - /etc/timezone:/etc/timezone:ro
+      - /var/run/docker.sock:/var/run/docker.sock  # دسترسی به Docker Host
+      - portainer:/data                            # داده‌های Portainer پایدار
+      - /etc/timezone:/etc/timezone:ro             # همسان‌سازی TZ
       - /etc/localtime:/etc/localtime:ro
     environment:
       PORTAINER_HTTPS_PORT: "${PORTAINER_HTTPS_PORT}"
@@ -22,39 +22,79 @@ services:
     networks:
       - internal_net
 
+  # --- InfluxDB 3 Core (نسخه صحیح v3 ؛ پورت 8181) ---
   influx-db:
     image: influxdb:3.4.1-core
     container_name: influx-db
     restart: always
     ports:
-      # - "8086:8086"  # پورت HTTP برای ارتباط با کلاینت‌ها
-      - "8181:8181"  # پورت API داخلی (برای ارتباط بین نودها)
-    command: >
-      serve 
-      --node-id influxdb-01 
-      --object-store file 
-      --data-dir /var/lib/influxdb3
+      - "8181:8181"  # پورت HTTP/REST اصلی InfluxDB 3 Core
+    # از آرایه command استفاده می‌کنیم تا خواناتر باشد
+    command:
+      - influxdb3          # باینری اصلی
+      - serve              # حالت سرویس
+      - --node-id=influxdb-01
+      - --object-store=file               # ذخیره‌سازی فایل‌محور (لوکال)
+      - --data-dir=/var/lib/influxdb3/data
+      - --plugin-dir=/var/lib/influxdb3/plugins
+      - --http-bind=0.0.0.0:8181          # اطمینان از بایند روی همه اینترفیس‌ها
+      - --admin-token-file=/secrets/admin-token.json  # توکن آفلاین (فقط استارت اول)
     environment:
-      - DOCKER_INFLUXDB_INIT_MODE=setup
-      - DOCKER_INFLUXDB_INIT_USERNAME=${INFLUXDB_ADMIN_USER}
-      - DOCKER_INFLUXDB_INIT_PASSWORD=${INFLUXDB_ADMIN_PASSWORD}
-      - DOCKER_INFLUXDB_INIT_ORG=${INFLUXDB_ORG}
-      - DOCKER_INFLUXDB_INIT_BUCKET=${INFLUXDB_BUCKET}
-      - INFLUXDB_HTTP_FLUX_ENABLED=true
-      - TZ=${TZ}
-      - INFLUXD_LOG_LEVEL=${LOG_LEVEL:-info}
+      # سطح لاگ کلی (info|debug)
+      LOG_FILTER: "${LOG_LEVEL:-info}"
+      # تایم‌زون برای سازگاری لاگ‌ها
+      TZ: "${TZ}"
+      # معادل‌های env برای شفافیت (در صورت حذف از command هم کار می‌کنند)
+      INFLUXDB3_OBJECT_STORE: "file"
+      INFLUXDB3_DB_DIR: "/var/lib/influxdb3/data"
+      INFLUXDB3_HTTP_BIND_ADDR: "0.0.0.0:8181"
+      INFLUXDB3_ADMIN_TOKEN_FILE: "/secrets/admin-token.json"
     volumes:
-      - influx-db:/var/lib/influxdb3
+      - influx-db:/var/lib/influxdb3        # داده‌های پایدار InfluxDB
+      - /opt/influxdb3/secrets/admin-token.json:/secrets/admin-token.json:ro  # توکن آفلاین فقط خواندنی
     networks:
       - internal_net
       - db_net
 
+  # --- InfluxDB 3 Explorer (رسمی InfluxData) ---
+  influxdb3-explorer:
+    image: influxdata/influxdb3-ui:1.0.0
+    container_name: influxdb3-explorer
+    restart: unless-stopped
+    command: ["--mode=admin"]   # admin: ساخت DB، مدیریت کانکشن‌ها، ویرایش و...
+    ports:
+      - "${EXPLORER_HTTP_PORT:-8888}:80"        # UI وب
+      - "${EXPLORER_ADMIN_API_PORT:-8889}:8888" # API داخلی Explorer (برای admin mode)
+      # اگر HTTPS می‌خواهی، 443 را هم مپ کن و ولوم ssl را فعال کن:
+      # - "${EXPLORER_HTTPS_PORT:-8443}:443"
+    environment:
+      # حتماً در محیط‌های واقعی یک کلید بلند و تصادفی ست کن
+      SESSION_SECRET_KEY: "${EXPLORER_SESSION_SECRET_KEY}"
+      # مسیر پایگاه SQLite داخل کانتینر (حاوی سشن/تنظیمات Explorer)
+      DATABASE_URL: "/db/sqlite.db"
+      # مسیرهای سفارشی TLS در صورت نیاز:
+      # SSL_CERT_PATH: "/etc/nginx/ssl/server.crt"
+      # SSL_KEY_PATH:  "/etc/nginx/ssl/server.key"
+    volumes:
+      - influxdb3-explorer:/db:rw                 # ← والیوم نام‌دار محلی (درخواست شما)
+      - /opt/influxdb3/explorer-config:/app-root/config:ro
+      # پیکربندی آمادهٔ Connection ها (اختیاری؛ اگر config.json داری فعال کن)
+      - ./explorer/config:/app-root/config:ro
+      # گواهی SSL سفارشی (اختیاری؛ اگر HTTPS می‌خواهی فعال کن)
+      # - ./explorer/ssl:/etc/nginx/ssl:ro
+    networks:
+      - internal_net   # روی همین شبکه، سرویس influx-db با نام سرویس قابل دسترس است
+
+# --- تعریف والیوم‌های نام‌دار (همه external چون قبلاً ساختی) ---
 volumes:
   portainer:
     external: true
   influx-db:
     external: true
+  influxdb3-explorer:
+    external: true
 
+# --- شبکه‌ها (external چون قبلاً ساختی) ---
 networks:
   internal_net:
     external: true
