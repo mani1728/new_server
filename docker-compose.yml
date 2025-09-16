@@ -333,6 +333,7 @@ services:
       # db-handler:
       #   condition: service_started
     environment:
+      TOPICS_JSON: "${TOPICS_JSON}"
       KAFKA_BOOTSTRAP_SERVERS: "kafka:${KAFKA_PORT_PLAINTEXT:-9092}"
       DRY_RUN: "${TOPIC_MANAGER_DRY_RUN:-false}"
       TIMEOUT_SEC: "${TOPIC_MANAGER_TIMEOUT_SEC:-30}"
