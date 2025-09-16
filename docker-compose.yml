@@ -240,7 +240,7 @@ services:
     networks:
       - internal_net
     restart: always
-  
+ 
   # (اختیاری) فیکس‌پرمیژن والیوم دیتا تا uid/gid دلخواه
   fix-perms:
     image: alpine:3.20
@@ -323,11 +323,64 @@ services:
     restart: unless-stopped
     networks: [internal_net]
 
+  topic-manager:
+    build:
+      context: ./topic-manager
+    container_name: topic-manager
+    depends_on:
+      kafka:
+        condition: service_healthy
+      # db-handler:
+      #   condition: service_started
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:${KAFKA_PORT_PLAINTEXT:-9092}"
+      DRY_RUN: "${TOPIC_MANAGER_DRY_RUN:-false}"
+      TIMEOUT_SEC: "${TOPIC_MANAGER_TIMEOUT_SEC:-30}"
+      WAIT_FOR_KAFKA_SEC: "${TOPIC_MANAGER_WAIT_SEC:-60}"
+      LOG_LEVEL: "${TOPIC_MANAGER_LOG_LEVEL:-DEBUG}"
+
+      # --- Discovery via DB list ---
+      DISCOVERY_MODE: "${DISCOVERY_MODE:-db}"
+      DB_LIST_ENABLE: "${DB_LIST_ENABLE:-true}"
+      DB_LIST_REQ_TOPIC: "${DB_LIST_REQ_TOPIC:-db.clients.list}"
+      DB_LIST_RESP_TOPIC: "${DB_LIST_RESP_TOPIC:-db.clients.list.responses}"
+      DB_LIST_TIMEOUT_SEC: "${DB_LIST_TIMEOUT_SEC:-10}"
+      DISCOVERY_MAX_RESULTS: "${DISCOVERY_MAX_RESULTS:-1000}"
+      DISCOVERY_CACHE_FILE: "${DISCOVERY_CACHE_FILE:-/state/known_clients.json}"
+
+      # --- Replies / Shared topics ---
+      REPLIES_TOPIC: "${REPLIES_TOPIC:-server.replies}"
+      REPLIES_PARTITIONS: "${REPLIES_PARTITIONS:-3}"
+      REPLIES_RETENTION_MS: "${REPLIES_RETENTION_MS:-604800000}"
+      REPLIES_MIN_ISR: "${REPLIES_MIN_ISR:-1}"
+      REPLIES_CLEANUP_POLICY: "${REPLIES_CLEANUP_POLICY:-delete}"
+      ENABLE_CLIENT_TOPICS: "${ENABLE_CLIENT_TOPICS:-true}"
+      CLIENTS_STATUS_COMPACT: "${CLIENTS_STATUS_COMPACT:-true}"
+
+      # --- Per-client sharding ---
+      CMD_TOPIC_PREFIX: "${CMD_TOPIC_PREFIX:-cmd.}"
+      CLIENT_IDS: "${CLIENT_IDS:-}"
+      CLIENT_ID: "${CLIENT_ID:-}"
+      CLIENT_TOPIC_SHARDS: "${CLIENT_TOPIC_SHARDS:-3}"
+      PARTITIONS_DEFAULT: "${PARTITIONS_DEFAULT:-1}"
+      REPLICATION_FACTOR: "${REPLICATION_FACTOR:-1}"
+
+      # --- Safety delete ---
+      DELETE_EXTRA: "${DELETE_EXTRA:-true}"
+      DELETE_PREFIXES: "${DELETE_PREFIXES:-cmd.,clients.,server.,db.,mgmt.}"
+    volumes:
+      - topic-manager:/state          # ← ولوم شما
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    restart: unless-stopped
+    networks: [internal_net]          # ← شبکه‌ی اکسترنال شما
 
 
 
 # --- تعریف والیوم‌های نام‌دار (همه external چون قبلاً ساختی) ---
 volumes:
+  topic-manager:
+    external: true
   kafka:
     external: true
   kafka-ui:
