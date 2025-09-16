@@ -69,3 +69,5 @@ docs/test.md
 docker-compose_old.yml
 env.example
 .env.bak
+.docker/*
+.docker/buildx/*
