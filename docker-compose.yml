@@ -376,7 +376,24 @@ services:
     restart: unless-stopped
     networks: [internal_net]          # ← شبکه‌ی اکسترنال شما
 
-
+  influx-handler:
+    build:
+      context: ./db-handler
+      dockerfile: Dockerfile
+    container_name: influx-handler
+    environment:
+      # مقادیر را مطابق راه‌اندازی InfluxDB خودتان تنظیم کنید
+      INFLUX_URL: "http://influx-db:8181"
+      INFLUX_TOKEN: "${INFLUXDB3_AUTH_TOKEN}"   # در فایل .env ست کنید
+      INFLUX_ORG: "${INFLUXDB_ORG:-server-org}"
+      INFLUX_BUCKET: "${INFLUXDB_BUCKET:-my-bucket}"
+    depends_on:
+      influx-db:
+        condition: service_started
+    networks:
+      - db_net         # چون باید به InfluxDB وصل شود
+      - internal_net   # اگر لازم است با سرویس‌های دیگر هم حرف بزند
+    restart: unless-stopped
 
 # --- تعریف والیوم‌های نام‌دار (همه external چون قبلاً ساختی) ---
 volumes:
