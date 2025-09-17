@@ -73,3 +73,4 @@ env.example
 .docker/buildx/*
 .docker/
 .env.bak
+.docker/buildx/activity/default

@@ -378,7 +378,7 @@ services:
 
   influx-handler:
     build:
-      context: ./db-handler
+      context: ./influx-handler
       dockerfile: Dockerfile
     container_name: influx-handler
     environment:
@@ -394,6 +394,7 @@ services:
       - db_net         # چون باید به InfluxDB وصل شود
       - internal_net   # اگر لازم است با سرویس‌های دیگر هم حرف بزند
     restart: unless-stopped
+
 
 # --- تعریف والیوم‌های نام‌دار (همه external چون قبلاً ساختی) ---
 volumes:

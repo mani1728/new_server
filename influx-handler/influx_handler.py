@@ -1,16 +1,18 @@
-# influx_handler.py (اسکلت ساده)
-from influxdb_client import InfluxDBClient, Point, WriteOptions
+from influxdb_client_3 import InfluxDBClient3, Point, WriteOptions
 import os, time
 
-url   = os.environ.get("INFLUX_URL", "http://influx-db:8086")
-token = os.environ.get("INFLUX_TOKEN")
-org   = os.environ.get("INFLUX_ORG", "my-org")
-bucket= os.environ.get("INFLUX_BUCKET", "my-bucket")
+HOST = os.getenv("INFLUX_URL", "http://influx-db:8181")   # v3 روی 8181
+DB   = os.getenv("INFLUX_DATABASE", "app")        # اسم database v3
+TOKEN= os.getenv("INFLUX_TOKEN")                          # توکن با دسترسی R/W
 
-client = InfluxDBClient(url=url, token=token, org=org)
-write_api = client.write_api(write_options=WriteOptions(batch_size=1))
+# نوشتن همزمان (سینک) یا batching (اختیاری)
+client = InfluxDBClient3(host=HOST, database=DB, token=TOKEN)
 
-while True:
-    p = Point("heartbeat").tag("service","influx-handler").field("alive", 1)
-    write_api.write(bucket=bucket, org=org, record=p)
-    time.sleep(10)
+def heartbeat_once():
+    p = Point("heartbeat").tag("service", "influx-handler").field("alive", 1)
+    client.write(record=p)  # write_precision پیش‌فرض ns؛ در صورت نیاز مشخص کن
+
+if __name__ == "__main__":
+    while True:
+        heartbeat_once()
+        time.sleep(10)
