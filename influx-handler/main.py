@@ -205,87 +205,6 @@ class InfluxRepo:
             .field("meta_json", json.dumps(meta, ensure_ascii=False))
         self.client.write(record=p)
 
-# ---------- Bootstrap: ensure database & table ----------
-def ensure_database_and_table():
-    if not INFLUX_TOKEN:
-        log.error("INFLUX_TOKEN is missing"); raise SystemExit(1)
-
-    # 1) چکِ دیتابیس با یک کوئری ساده
-    ok = False
-    try:
-        resp = requests.get(
-            f"{INFLUX_URL}/api/v3/query_sql",
-            headers={"Authorization": f"Bearer {INFLUX_TOKEN}"},
-            params={"db": INFLUX_DATABASE, "q": "SHOW TABLES", "format": "json"},
-            timeout=5,
-        )
-        ok = resp.status_code == 200
-    except Exception as e:
-        log.warning("query_sql check failed: %s", e)
-
-    if not ok:
-        log.info("[bootstrap] database '%s' not found (or query failed) → creating by write_lp", INFLUX_DATABASE)
-        # نوشتن سبک برای ساخت دیتابیس (در v3 ساخت دیتابیس با write امکان‌پذیر است)
-        lp = f'bootstrap,component=influx-handler alive=1i {int(time.time()*1e9)}'
-        r = requests.post(
-            f"{INFLUX_URL}/api/v3/write_lp",
-            headers={"Authorization": f"Bearer {INFLUX_TOKEN}", "Content-Type": "text/plain"},
-            params={"db": INFLUX_DATABASE, "precision": "ns"},
-            data=lp.encode("utf-8"),
-            timeout=5,
-        )
-        if r.status_code not in (204, 200):
-            log.error("write_lp failed for db create: %s %s", r.status_code, r.text)
-            raise SystemExit(1)
-        time.sleep(0.5)
-
-    # 2) چک/ساخت جدول
-    try:
-        r = requests.get(
-            f"{INFLUX_URL}/api/v3/query_sql",
-            headers={"Authorization": f"Bearer {INFLUX_TOKEN}"},
-            params={"db": INFLUX_DATABASE, "q": "SHOW TABLES", "format": "json"},
-            timeout=5,
-        )
-        exists = False
-        if r.status_code == 200 and r.json().get("results"):
-            # پاسخ JSON استاندارد docs
-            series = r.json()["results"][0].get("series", [])
-            for s in series:
-                vals = s.get("values", [])
-                for row in vals:
-                    # columns: ["table_catalog","table_schema","table_name","table_type"]
-                    if len(row) >= 3 and row[2] == ACCOUNT_TABLE:
-                        exists = True; break
-        if not exists:
-            log.info("[bootstrap] creating table '%s'", ACCOUNT_TABLE)
-            payload = {"db": INFLUX_DATABASE, "table": ACCOUNT_TABLE, "tags": ACCOUNT_TAGS, "fields": ACCOUNT_FIELDS}
-            r2 = requests.post(
-                f"{INFLUX_URL}/api/v3/configure/table",
-                headers={"Authorization": f"Bearer {INFLUX_TOKEN}", "Content-Type": "application/json"},
-                data=json.dumps(payload).encode("utf-8"),
-                timeout=5,
-            )
-            if r2.status_code not in (200,201,204):
-                # اگر ساخت با API نشد، با اولین write هم جدول ساخته می‌شود
-                log.warning("configure/table failed (%s) → fallback to auto-create by write", r2.status_code)
-                # یک رکورد مینیمال بنویس تا جدول ساخته شود
-                lp = f'{ACCOUNT_TABLE},client_id=bootstrap,tenant={TENANT_DEFAULT} identity="auto",auth_token="auto",meta_json="{{}}" {int(time.time()*1e9)}'
-                r3 = requests.post(
-                    f"{INFLUX_URL}/api/v3/write_lp",
-                    headers={"Authorization": f"Bearer {INFLUX_TOKEN}", "Content-Type": "text/plain"},
-                    params={"db": INFLUX_DATABASE, "precision": "ns"},
-                    data=lp.encode("utf-8"),
-                    timeout=5,
-                )
-                if r3.status_code not in (204, 200):
-                    log.error("write_lp fallback failed: %s %s", r3.status_code, r3.text)
-                    raise SystemExit(1)
-
-    except Exception as e:
-        log.error("bootstrap failed: %s", e)
-        raise
-
 # ---------- Handlers ----------
 def handle_register(repo: InfluxRepo, body: Dict, headers: Dict[str, str], corr_id: str, client_tmp_id: str) -> Dict:
     # هویت
@@ -332,6 +251,95 @@ def handle_list_clients(repo: InfluxRepo, _body: Dict, _headers: Dict[str, str],
     if tbl and tbl.num_rows:
         ids = [x.as_py() for x in tbl.column(tbl.schema.get_field_index("client_id")) if isinstance(x.as_py(), str)]
     return {"schema": "DbClientsListV1", "status": "ok", "count": len(ids), "clients": sorted(ids)}
+
+# ---------- Bootstrap: ensure database & table ----------
+def ensure_database_and_table():
+    if not INFLUX_TOKEN:
+        log.error("INFLUX_TOKEN is missing")
+        raise SystemExit(1)
+
+    from influxdb_client_3 import InfluxDBClient3
+    import requests, json, time
+
+    def _show_tables():
+        cli = InfluxDBClient3(host=INFLUX_URL, database=INFLUX_DATABASE, token=INFLUX_TOKEN)
+        tbl = cli.query("SHOW TABLES")
+        names = []
+        if tbl and tbl.num_rows:
+            idx = tbl.schema.get_field_index("table_name")
+            if idx == -1 and len(tbl.column_names) >= 3:
+                idx = 2
+            if idx != -1:
+                names = [x.as_py() for x in tbl.column(idx)]
+        return names
+
+    # 1) DB check
+    db_ok = False
+    try:
+        _ = _show_tables()
+        db_ok = True
+    except Exception as e:
+        log.info("[bootstrap] DB check failed (%s) → will create DB", e)
+
+    # 2) create DB (prefer API; fallback write_lp with precision=nanosecond)
+    if not db_ok:
+        try:
+            r = requests.post(
+                f"{INFLUX_URL}/api/v3/configure/database",
+                headers={"Authorization": f"Bearer {INFLUX_TOKEN}", "Content-Type": "application/json"},
+                data=json.dumps({"db": INFLUX_DATABASE}).encode("utf-8"), timeout=5
+            )
+            if r.status_code in (200, 201, 204):
+                log.info("[bootstrap] database '%s' created via configure/database", INFLUX_DATABASE)
+            else:
+                log.warning("[bootstrap] configure/database returned %s → fallback to write_lp", r.status_code)
+                lp = f'bootstrap,component=influx-handler alive=1i {int(time.time()*1e9)}'
+                r2 = requests.post(
+                    f"{INFLUX_URL}/api/v3/write_lp",
+                    headers={"Authorization": f"Bearer {INFLUX_TOKEN}", "Content-Type": "text/plain"},
+                    params={"db": INFLUX_DATABASE, "precision": "nanosecond"},
+                    data=lp.encode("utf-8"), timeout=5
+                )
+                if r2.status_code not in (200, 204):
+                    log.error("write_lp failed for db create: %s %s", r2.status_code, r2.text)
+                    raise SystemExit(1)
+        except Exception as e:
+            log.error("DB create failed: %s", e)
+            raise
+        time.sleep(0.5)
+
+    # 3) table check
+    exists = False
+    try:
+        table_names = _show_tables()
+        exists = ACCOUNT_TABLE in set(table_names)
+    except Exception as e:
+        log.warning("SHOW TABLES after DB-create failed: %s", e)
+
+    # 4) create table (prefer API; fallback first write)
+    if not exists:
+        log.info("[bootstrap] creating table '%s'", ACCOUNT_TABLE)
+        payload = {"db": INFLUX_DATABASE, "table": ACCOUNT_TABLE, "tags": ACCOUNT_TAGS, "fields": ACCOUNT_FIELDS}
+        r2 = requests.post(
+            f"{INFLUX_URL}/api/v3/configure/table",
+            headers={"Authorization": f"Bearer {INFLUX_TOKEN}", "Content-Type": "application/json"},
+            data=json.dumps(payload).encode("utf-8"), timeout=5
+        )
+        if r2.status_code not in (200, 201, 204):
+            log.warning("configure/table failed (%s) → fallback to auto-create by first write", r2.status_code)
+            lp = (
+                f'{ACCOUNT_TABLE},client_id=bootstrap,tenant={TENANT_DEFAULT} '
+                f'identity="auto",auth_token="auto",meta_json="{{}}" {int(time.time()*1e9)}'
+            )
+            r3 = requests.post(
+                f"{INFLUX_URL}/api/v3/write_lp",
+                headers={"Authorization": f"Bearer {INFLUX_TOKEN}", "Content-Type": "text/plain"},
+                params={"db": INFLUX_DATABASE, "precision": "nanosecond"},
+                data=lp.encode("utf-8"), timeout=5
+            )
+            if r3.status_code not in (200, 204):
+                log.error("write_lp fallback failed: %s %s", r3.status_code, r3.text)
+                raise SystemExit(1)
 
 # ---------- Main loop ----------
 def run():

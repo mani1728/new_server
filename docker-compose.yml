@@ -5,6 +5,14 @@ services:
   portainer:
     image: portainer/portainer-ce:latest
     container_name: portainer
+    deploy:
+      resources:
+        limits:
+          cpus: '0.30'  # حداکثر 50% از یک هسته CPU
+          memory: 256M   # حداکثر 512 مگابایت رم
+        reservations:
+          cpus: '0.1'  # حداقل 25% از یک هسته CPU رزرو شود
+          memory: 64M   # حداقل 128 مگابایت رم رزرو شود
     restart: always
     ports:
       # - "9000:9000"            # HTTP (در صورت نیاز)
@@ -26,6 +34,14 @@ services:
   influx-db:
     image: influxdb:3.4.1-core
     container_name: influx-db
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'  # حداکثر 50% از یک هسته CPU
+          memory: 256M   # حداکثر 512 مگابایت رم
+        reservations:
+          cpus: '0.25'  # حداقل 25% از یک هسته CPU رزرو شود
+          memory: 128M   # حداقل 128 مگابایت رم رزرو شود
     restart: always
     ports:
       - "8181:8181"  # پورت HTTP/REST اصلی InfluxDB 3 Core
@@ -60,6 +76,14 @@ services:
   influxdb3-explorer:
     image: influxdata/influxdb3-ui:1.0.0
     container_name: influxdb3-explorer
+    deploy:
+      resources:
+        limits:
+          cpus: '0.20'  # حداکثر 50% از یک هسته CPU
+          memory: 128M   # حداکثر 512 مگابایت رم
+        reservations:
+          cpus: '0.05'  # حداقل 25% از یک هسته CPU رزرو شود
+          memory: 16M   # حداقل 128 مگابایت رم رزرو شود
     restart: unless-stopped
     command: ["--mode=admin"]   # admin: ساخت DB، مدیریت کانکشن‌ها، ویرایش و...
     ports:
@@ -88,6 +112,14 @@ services:
   minio:
     image: minio/minio:latest
     container_name: minIO
+    deploy:
+      resources:
+        limits:
+          cpus: '0.30'  # حداکثر 50% از یک هسته CPU
+          memory: 128M   # حداکثر 512 مگابایت رم
+        reservations:
+          cpus: '0.1'  # حداقل 25% از یک هسته CPU رزرو شود
+          memory: 64M   # حداقل 128 مگابایت رم رزرو شود
     ports:
       # پورت API برای دسترسی برنامه‌ها
       - "9000:9000"
@@ -118,6 +150,14 @@ services:
   elasticsearch:
     image: elasticsearch:9.1.3
     container_name: elasticsearch
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'  # حداکثر 50% از یک هسته CPU
+          memory: 512M   # حداکثر 512 مگابایت رم
+        reservations:
+          cpus: '0.5'  # حداقل 25% از یک هسته CPU رزرو شود
+          memory: 256M   # حداقل 128 مگابایت رم رزرو شود
     environment:
       - discovery.type=single-node
       - xpack.security.enabled=true
@@ -148,6 +188,14 @@ services:
   kibana:
     image: kibana:9.1.3
     container_name: kibana
+    deploy:
+      resources:
+        limits:
+          cpus: '0.30'  # حداکثر 50% از یک هسته CPU
+          memory: 256M   # حداکثر 512 مگابایت رم
+        reservations:
+          cpus: '0.1'  # حداقل 25% از یک هسته CPU رزرو شود
+          memory: 64M   # حداقل 128 مگابایت رم رزرو شود
     depends_on:
       - elasticsearch
     environment:
@@ -170,6 +218,14 @@ services:
   fleet-server:
     image: elastic/elastic-agent:9.1.3
     container_name: fleet-server
+    deploy:
+      resources:
+        limits:
+          cpus: '0.30'  # حداکثر 50% از یک هسته CPU
+          memory: 256M   # حداکثر 512 مگابایت رم
+        reservations:
+          cpus: '0.1'  # حداقل 25% از یک هسته CPU رزرو شود
+          memory: 64M   # حداقل 128 مگابایت رم رزرو شود
     ports:
       - "8220:8220"
     environment:
@@ -219,6 +275,14 @@ services:
   elastic-agent:
     image: elastic/elastic-agent:9.1.3
     container_name: elastic-agent
+    deploy:
+      resources:
+        limits:
+          cpus: '0.30'  # حداکثر 50% از یک هسته CPU
+          memory: 256M   # حداکثر 512 مگابایت رم
+        reservations:
+          cpus: '0.1'  # حداقل 25% از یک هسته CPU رزرو شود
+          memory: 64M   # حداقل 128 مگابایت رم رزرو شود
     environment:
       - FLEET_ENROLL=1
       - FLEET_URL=http://fleet-server:8220
@@ -254,6 +318,14 @@ services:
   kafka:
     image: apache/kafka:latest
     container_name: kafka
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'  # حداکثر 50% از یک هسته CPU
+          memory: 512M   # حداکثر 512 مگابایت رم
+        reservations:
+          cpus: '0.5'  # حداقل 25% از یک هسته CPU رزرو شود
+          memory: 256M   # حداقل 128 مگابایت رم رزرو شود
     # اجرای Kafka با KRaft تک‌نودی + سه listener
     environment:
       TZ: ${TZ}
@@ -305,6 +377,14 @@ services:
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
     container_name: kafka-ui
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'  # حداکثر 50% از یک هسته CPU
+          memory: 128M   # حداکثر 512 مگابایت رم
+        reservations:
+          cpus: '0.05'  # حداقل 25% از یک هسته CPU رزرو شود
+          memory: 16M   # حداقل 128 مگابایت رم رزرو شود
     depends_on:
       kafka:
         condition: service_healthy
@@ -327,6 +407,14 @@ services:
     build:
       context: ./topic-manager
     container_name: topic-manager
+    deploy:
+      resources:
+        limits:
+          cpus: '0.4'  # حداکثر 50% از یک هسته CPU
+          memory: 256M   # حداکثر 512 مگابایت رم
+        reservations:
+          cpus: '0.15'  # حداقل 25% از یک هسته CPU رزرو شود
+          memory: 64M   # حداقل 128 مگابایت رم رزرو شود
     depends_on:
       kafka:
         condition: service_healthy
@@ -381,6 +469,14 @@ services:
       context: ./influx-handler
       dockerfile: Dockerfile
     container_name: influx-handler
+    deploy:
+      resources:
+        limits:
+          cpus: '0.4'  # حداکثر 50% از یک هسته CPU
+          memory: 256M   # حداکثر 512 مگابایت رم
+        reservations:
+          cpus: '0.15'  # حداقل 25% از یک هسته CPU رزرو شود
+          memory: 64M   # حداقل 128 مگابایت رم رزرو شود
     environment:
       # Kafka
       KAFKA_BOOTSTRAP_SERVERS: "kafka:${KAFKA_PORT_PLAINTEXT:-9092}"

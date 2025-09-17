@@ -74,3 +74,4 @@ env.example
 .docker/
 .env.bak
 .docker/buildx/activity/default
+docker-compose.yml
