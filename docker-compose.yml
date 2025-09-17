@@ -85,13 +85,334 @@ services:
     networks:
       - internal_net   # روی همین شبکه، سرویس influx-db با نام سرویس قابل دسترس است
 
+  minio:
+    image: minio/minio:latest
+    container_name: minIO
+    ports:
+      # پورت API برای دسترسی برنامه‌ها
+      - "9000:9000"
+      # پورت کنسول وب برای مدیریت
+      - "9001:9001"
+    environment:
+      # !!! هشدار: این مقادیر را حتما عوض کنید !!!
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    restart: always
+    networks:
+      - internal_net
+    volumes:
+      # اتصال 10 والیوم به 10 مسیر مختلف در داخل کانتینر
+      - minio-data1:/data1
+      - minio-data2:/data2
+      - minio-data3:/data3
+      - minio-data4:/data4
+      - minio-data5:/data5
+      - minio-data6:/data6
+      - minio-data7:/data7
+      - minio-data8:/data8
+      - minio-data9:/data9
+      - minio-data10:/data10
+    # این دستور حالت توزیع‌شده (Distributed) را با 10 دیسک فعال می‌کند
+    command: server /data1 /data2 /data3 /data4 /data5 /data6 /data7 /data8 /data9 /data10 --console-address ":9001"
+
+  elasticsearch:
+    image: elasticsearch:9.1.3
+    container_name: elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=true
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+      - xpack.security.http.ssl.enabled=false
+      - ES_JAVA_OPTS=-Xms1g -Xmx1g
+      - TZ=${TZ}
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    ports:
+      - "9200:9200"
+    volumes:
+      - elasticsearch:/usr/share/elasticsearch/data
+    networks:
+      - internal_net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200 >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    restart: always
+
+  kibana:
+    image: kibana:9.1.3
+    container_name: kibana
+    depends_on:
+      - elasticsearch
+    environment:
+      - ELASTICSEARCH_HOSTS=${ELASTIC_HOST}
+      # - ELASTICSEARCH_USERNAME=${ELASTIC_USERNAME}
+      # - ELASTICSEARCH_PASSWORD=${ELASTIC_PASSWORD}
+      - TZ=${TZ}
+      - ELASTICSEARCH_SERVICEACCOUNTTOKEN=${KIBANA_SA_TOKEN}
+          # کلیدهای ضروری:
+      - XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY=${KIBANA_ENCRYPTION_KEY}
+      # پیشنهاد می‌کنم این دوتا هم ست کنی که بعداً گیر ندی:
+      - XPACK_SECURITY_ENCRYPTIONKEY=${KIBANA_SECURITY_KEY}
+      - XPACK_REPORTING_ENCRYPTIONKEY=${KIBANA_REPORTING_KEY}
+    ports:
+      - "5601:5601"
+    networks:
+      - internal_net
+    restart: always
+
+  fleet-server:
+    image: elastic/elastic-agent:9.1.3
+    container_name: fleet-server
+    ports:
+      - "8220:8220"
+    environment:
+      FLEET_SERVER_ENABLE: "true"
+      FLEET_SERVER_HOST: "0.0.0.0"
+      FLEET_SERVER_PORT: "8220"
+
+      # اتصال به ES (بدون TLS)
+      FLEET_SERVER_ELASTICSEARCH_HOSTS: "http://elasticsearch:9200"
+      FLEET_SERVER_ELASTICSEARCH_HOST: "http://elasticsearch:9200"
+      FLEET_SERVER_ELASTICSEARCH_INSECURE: "true"
+
+      # HTTP اجباری برای Fleet Server
+      FLEET_SERVER_INSECURE_HTTP: "true"
+
+      # توکن سرویس که از ES گرفتی
+      FLEET_SERVER_SERVICE_TOKEN: "${FLEET_SERVER_SERVICE_TOKEN}"
+
+      # اتصال به Kibana با Basic (ساده‌ترین و شفاف)
+      KIBANA_FLEET_SETUP: "true"
+      KIBANA_HOST: "http://kibana:5601"
+      KIBANA_INSECURE: "true"
+      KIBANA_FLEET_USERNAME: "elastic"
+      KIBANA_FLEET_PASSWORD: "${ELASTIC_PASSWORD}"
+
+      TZ: "${TZ}"
+    command: >
+      /usr/bin/tini -- /usr/bin/elastic-agent run -e
+      -E output.elasticsearch.hosts=["http://elasticsearch:9200"]
+      -E output.elasticsearch.ssl.verification_mode=none
+    depends_on:
+      elasticsearch:
+        condition: service_started
+        required: true
+      kibana:
+        condition: service_started
+        required: true
+    networks:
+      - internal_net
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8220/api/status >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  elastic-agent:
+    image: elastic/elastic-agent:9.1.3
+    container_name: elastic-agent
+    environment:
+      - FLEET_ENROLL=1
+      - FLEET_URL=http://fleet-server:8220
+      - FLEET_INSECURE=true             # چون Fleet Server بدون TLS است
+      - FLEET_ENROLLMENT_TOKEN=${ENROLLMENT_TOKEN}
+      - ELASTICSEARCH_HOST=http://elasticsearch:9200
+      - KIBANA_HOST=http://kibana:5601
+      - TZ=${TZ}
+    volumes:
+      # برای لاگ‌های داکر و متریک‌ها:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      # برای System integration (لاگ‌های syslog/journald در صورت نیاز):
+      - /var/log:/var/log:ro
+    depends_on:
+      fleet-server:
+        condition: service_started
+        required: true
+    networks:
+      - internal_net
+    restart: always
+ 
+  # (اختیاری) فیکس‌پرمیژن والیوم دیتا تا uid/gid دلخواه
+  fix-perms:
+    image: alpine:3.20
+    command: ["/bin/sh","-lc","adduser -D -u ${KAFKA_UID:-1000} app && chown -R ${KAFKA_UID:-1000}:${KAFKA_GID:-1000} /var/lib/kafka/data || true"]
+    user: "0:0"
+    volumes:
+      - kafka:/var/lib/kafka/data
+    networks: [internal_net]
+    restart: "no"
+
+  kafka:
+    image: apache/kafka:latest
+    container_name: kafka
+    # اجرای Kafka با KRaft تک‌نودی + سه listener
+    environment:
+      TZ: ${TZ}
+      # نقش‌ها/نود آیدی/رأی‌دهندگان
+      KAFKA_PROCESS_ROLES: ${KAFKA_PROCESS_ROLES}
+      KAFKA_NODE_ID: ${KAFKA_NODE_ID}
+      KAFKA_CONTROLLER_QUORUM_VOTERS: ${KAFKA_CONTROLLER_QUORUM_VOTERS}
+
+      # سه listener: داخل، بیرون، و کنترلر
+      KAFKA_LISTENERS: "PLAINTEXT://:9092,PLAINTEXT_HOST://:9094,CONTROLLER://:9093"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092,PLAINTEXT_HOST://${HOST_IP}:${KAFKA_PORT_EXTERNAL}"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT,CONTROLLER:PLAINTEXT"
+      KAFKA_CONTROLLER_LISTENER_NAMES: ${KAFKA_CONTROLLER_LISTENER_NAMES}
+      KAFKA_INTER_BROKER_LISTENER_NAME: ${KAFKA_INTER_BROKER_LISTENER_NAME}
+
+      # مسیر دیتا و تنظیمات خوشه KRaft
+      KAFKA_LOG_DIRS: ${KAFKA_LOG_DIRS}
+      CLUSTER_ID: ${CLUSTER_ID}
+
+      # سایر تنظیمات مفید تک‌نودی
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: ${KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR}
+      KAFKA_DEFAULT_REPLICATION_FACTOR: ${KAFKA_DEFAULT_REPLICATION_FACTOR}
+      KAFKA_MIN_INSYNC_REPLICAS: ${KAFKA_MIN_INSYNC_REPLICAS}
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: ${KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS}
+      KAFKA_NUM_PARTITIONS: ${KAFKA_NUM_PARTITIONS}
+      KAFKA_LOG4J_ROOT_LOGLEVEL: ${KAFKA_LOG4J_ROOT_LOGLEVEL}
+    # اگر می‌خوای uid/gid خاصی روی فایل‌ها اعمال شه
+    user: "${KAFKA_UID:-1000}:${KAFKA_GID:-1000}"
+    depends_on:
+      fix-perms:
+        condition: service_completed_successfully
+    volumes:
+      - kafka:${KAFKA_LOG_DIRS}
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    ports:
+      - "${KAFKA_PORT_PLAINTEXT}:9092"  # داخل داکر
+      - "${KAFKA_PORT_CONTROLLER}:9093" # کنترلر KRaft
+      - "${KAFKA_PORT_EXTERNAL}:9094"   # بیرونی برای کلاینت‌های خارج از داکر
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
+    restart: unless-stopped
+    networks: [internal_net]
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      TZ: ${TZ}
+      KAFKA_CLUSTERS_0_NAME: "local"
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: "kafka:9092"
+      DYNAMIC_CONFIG_ENABLED: "true"
+    ports:
+      - "${KAFKA_UI_PORT}:8080"
+    volumes:
+      # صرفاً برای نگه‌داری فایل‌های کانفیگ/آپلود احتمالی (الزامی نیست)
+      - kafka-ui:/etc/kafkaui
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    restart: unless-stopped
+    networks: [internal_net]
+
+  topic-manager:
+    build:
+      context: ./topic-manager
+    container_name: topic-manager
+    depends_on:
+      kafka:
+        condition: service_healthy
+      # db-handler:
+      #   condition: service_started
+    environment:
+      TOPICS_JSON: "${TOPICS_JSON}"
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:${KAFKA_PORT_PLAINTEXT:-9092}"
+      DRY_RUN: "${TOPIC_MANAGER_DRY_RUN:-false}"
+      TIMEOUT_SEC: "${TOPIC_MANAGER_TIMEOUT_SEC:-30}"
+      WAIT_FOR_KAFKA_SEC: "${TOPIC_MANAGER_WAIT_SEC:-60}"
+      LOG_LEVEL: "${TOPIC_MANAGER_LOG_LEVEL:-DEBUG}"
+
+      # --- Discovery via DB list ---
+      DISCOVERY_MODE: "${DISCOVERY_MODE:-db}"
+      DB_LIST_ENABLE: "${DB_LIST_ENABLE:-true}"
+      DB_LIST_REQ_TOPIC: "${DB_LIST_REQ_TOPIC:-db.clients.list}"
+      DB_LIST_RESP_TOPIC: "${DB_LIST_RESP_TOPIC:-db.clients.list.responses}"
+      DB_LIST_TIMEOUT_SEC: "${DB_LIST_TIMEOUT_SEC:-10}"
+      DISCOVERY_MAX_RESULTS: "${DISCOVERY_MAX_RESULTS:-1000}"
+      DISCOVERY_CACHE_FILE: "${DISCOVERY_CACHE_FILE:-/state/known_clients.json}"
+
+      # --- Replies / Shared topics ---
+      REPLIES_TOPIC: "${REPLIES_TOPIC:-server.replies}"
+      REPLIES_PARTITIONS: "${REPLIES_PARTITIONS:-3}"
+      REPLIES_RETENTION_MS: "${REPLIES_RETENTION_MS:-604800000}"
+      REPLIES_MIN_ISR: "${REPLIES_MIN_ISR:-1}"
+      REPLIES_CLEANUP_POLICY: "${REPLIES_CLEANUP_POLICY:-delete}"
+      ENABLE_CLIENT_TOPICS: "${ENABLE_CLIENT_TOPICS:-true}"
+      CLIENTS_STATUS_COMPACT: "${CLIENTS_STATUS_COMPACT:-true}"
+
+      # --- Per-client sharding ---
+      CMD_TOPIC_PREFIX: "${CMD_TOPIC_PREFIX:-cmd.}"
+      CLIENT_IDS: "${CLIENT_IDS:-}"
+      CLIENT_ID: "${CLIENT_ID:-}"
+      CLIENT_TOPIC_SHARDS: "${CLIENT_TOPIC_SHARDS:-3}"
+      PARTITIONS_DEFAULT: "${PARTITIONS_DEFAULT:-1}"
+      REPLICATION_FACTOR: "${REPLICATION_FACTOR:-1}"
+
+      # --- Safety delete ---
+      DELETE_EXTRA: "${DELETE_EXTRA:-true}"
+      DELETE_PREFIXES: "${DELETE_PREFIXES:-cmd.,clients.,server.,db.,mgmt.}"
+    volumes:
+      - topic-manager:/state          # ← ولوم شما
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    restart: unless-stopped
+    networks: [internal_net]          # ← شبکه‌ی اکسترنال شما
+
+
+
 # --- تعریف والیوم‌های نام‌دار (همه external چون قبلاً ساختی) ---
 volumes:
+  topic-manager:
+    external: true
+  kafka:
+    external: true
+  kafka-ui:
+    external: true
   portainer:
+    external: true
+  elasticsearch:
     external: true
   influx-db:
     external: true
   influxdb3-explorer:
+    external: true
+  minio-data1:
+    external: true
+  minio-data2:
+    external: true
+  minio-data3:
+    external: true
+  minio-data4:
+    external: true
+  minio-data5:
+    external: true
+  minio-data6:
+    external: true
+  minio-data7:
+    external: true
+  minio-data8:
+    external: true
+  minio-data9:
+    external: true
+  minio-data10:
     external: true
 
 # --- شبکه‌ها (external چون قبلاً ساختی) ---
