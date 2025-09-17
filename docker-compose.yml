@@ -394,6 +394,12 @@ services:
       - db_net         # چون باید به InfluxDB وصل شود
       - internal_net   # اگر لازم است با سرویس‌های دیگر هم حرف بزند
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"from influxdb_client_3 import InfluxDBClient3, Point; import os; c=InfluxDBClient3(host=os.getenv('INFLUX_URL'), database=os.getenv('INFLUX_DATABASE'), token=os.getenv('INFLUX_TOKEN')); c.write(record=Point('hc').field('alive',1))\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
 
 # --- تعریف والیوم‌های نام‌دار (همه external چون قبلاً ساختی) ---
