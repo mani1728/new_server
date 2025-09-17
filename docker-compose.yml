@@ -382,14 +382,41 @@ services:
       dockerfile: Dockerfile
     container_name: influx-handler
     environment:
+      # Kafka
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:${KAFKA_PORT_PLAINTEXT:-9092}"
+      DB_HANDLER_GROUP_ID: "${DB_HANDLER_GROUP_ID:-db-handler}"
+      DB_CONSUMER_OFFSET: "earliest"
+      DB_REQ_TOPIC: "${DB_REQ_TOPIC:-db.register}"
+      DB_RESP_TOPIC: "${DB_RESP_TOPIC:-db.register.responses}"
+      DB_LIST_REQ_TOPIC: "${DB_LIST_REQ_TOPIC:-db.clients.list}"
+      DB_LIST_RESP_TOPIC: "${DB_LIST_RESP_TOPIC:-db.clients.list.responses}"
+      LOG_LEVEL: "${DB_HANDLER_LOG_LEVEL:-INFO}"
       # مقادیر را مطابق راه‌اندازی InfluxDB خودتان تنظیم کنید
       INFLUX_URL: "http://influx-db:8181"
       INFLUX_TOKEN: "${INFLUXDB3_AUTH_TOKEN}"   # در فایل .env ست کنید
       INFLUX_ORG: "${INFLUXDB_ORG:-server-org}"
       INFLUX_BUCKET: "${INFLUXDB_BUCKET:-my-bucket}"
+      # قوانین هویت/tenant (اختیاری، همان‌های قبلی)
+      IDENTITY_KEYS: "${IDENTITY_KEYS:-meta.client_id,meta.uuid,meta.serial,meta.hostname,header.client_id,header.uuid,header.serial,client_tmp_id}"
+      ID_PREFIX: "${ID_PREFIX:-client-}"
+      ID_REQUIRE_PREFIX: "${ID_REQUIRE_PREFIX:-true}"
+      ID_MAX_LEN: "${ID_MAX_LEN:-64}"
+      NORMALIZE_LOWER: "${NORMALIZE_LOWER:-true}"
+      TENANT_ENABLED: "${TENANT_ENABLED:-false}"
+      TENANT_KEYS: "${TENANT_KEYS:-meta.tenant,header.tenant}"
+      TENANT_DEFAULT: "${TENANT_DEFAULT:-default}"
+      TENANT_IN_ID: "${TENANT_IN_ID:-false}"
+      DISALLOWED_IDS: "${DISALLOWED_IDS:-}"
+      IDENTITY_UNIQUE: "${IDENTITY_UNIQUE:-false}"
+      # جدول اولیه
+      ACCOUNT_TABLE: "${ACCOUNT_TABLE:-account}"
+      ACCOUNT_TAGS: "${ACCOUNT_TAGS:-client_id,tenant}"
+      ACCOUNT_FIELDS_JSON: "${ACCOUNT_FIELDS_JSON}"
     depends_on:
       influx-db:
         condition: service_started
+      kafka:
+        condition: service_healthy
     networks:
       - db_net         # چون باید به InfluxDB وصل شود
       - internal_net   # اگر لازم است با سرویس‌های دیگر هم حرف بزند
