@@ -71,3 +71,5 @@ env.example
 .env.bak
 .docker/*
 .docker/buildx/*
+.docker/
+.env.bak
