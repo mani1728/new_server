@@ -45,6 +45,17 @@ services:
     restart: always
     ports:
       - "8181:8181"  # پورت HTTP/REST اصلی InfluxDB 3 Core
+    healthcheck:
+      # دستوری که برای بررسی سلامت اجرا می‌شود
+      test: ["CMD", "curl", "-f", "http://localhost:8181/health"]
+      # فاصله زمانی بین هر بررسی
+      interval: 30s
+      # مدت زمان انتظار برای پاسخ، قبل از اینکه بررسی ناموفق تلقی شود
+      timeout: 10s
+      # تعداد تلاش‌های ناموفق متوالی قبل از اینکه کانتینر "unhealthy" در نظر گرفته شود
+      retries: 3
+      # یک دوره زمانی اولیه برای استارت آپ کانتینر، قبل از شروع بررسی‌های سلامت
+      start_period: 20s
     # از آرایه command استفاده می‌کنیم تا خواناتر باشد
     command:
       - influxdb3          # باینری اصلی
@@ -154,10 +165,10 @@ services:
       resources:
         limits:
           cpus: '1.0'  # حداکثر 50% از یک هسته CPU
-          memory: 512M   # حداکثر 512 مگابایت رم
+          memory: 2g   # حداکثر 512 مگابایت رم
         reservations:
           cpus: '0.5'  # حداقل 25% از یک هسته CPU رزرو شود
-          memory: 256M   # حداقل 128 مگابایت رم رزرو شود
+          memory: 1g   # حداقل 128 مگابایت رم رزرو شود
     environment:
       - discovery.type=single-node
       - xpack.security.enabled=true
@@ -510,7 +521,7 @@ services:
       ACCOUNT_FIELDS_JSON: "${ACCOUNT_FIELDS_JSON}"
     depends_on:
       influx-db:
-        condition: service_started
+        condition: service_healthy
       kafka:
         condition: service_healthy
     networks:
