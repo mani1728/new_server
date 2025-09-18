@@ -1,0 +1,511 @@
+services:
+  portainer:
+    image: portainer/portainer-ce:latest
+    deploy:
+      resources:
+        limits:
+          cpus: '0.30'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+      restart_policy:
+        condition: any
+    ports:
+    - 9443:9443
+    volumes:
+    - /var/run/docker.sock:/var/run/docker.sock
+    - portainer:/data
+    - /etc/timezone:/etc/timezone:ro
+    - /etc/localtime:/etc/localtime:ro
+    environment:
+      PORTAINER_HTTPS_PORT: ${PORTAINER_HTTPS_PORT}
+      PORTAINER_ADMIN_PASSWORD: ${PORTAINER_ADMIN_PASSWORD}
+      PORTAINER_EDGE: 0
+      LOG_LEVEL: ${LOG_LEVEL}
+    networks:
+    - internal_net
+  influx-db:
+    image: influxdb:3.4.1-core
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+      restart_policy:
+        condition: any
+    ports:
+    - 8181:8181
+    healthcheck:
+      test:
+      - CMD
+      - curl
+      - -f
+      - http://localhost:8181/health
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    command:
+    - influxdb3
+    - serve
+    - --node-id=influxdb-01
+    - --object-store=file
+    - --data-dir=/var/lib/influxdb3/data
+    - --plugin-dir=/var/lib/influxdb3/plugins
+    - --http-bind=0.0.0.0:8181
+    - --admin-token-file=/secrets/admin-token.json
+    environment:
+      LOG_FILTER: ${LOG_LEVEL:-info}
+      TZ: ${TZ}
+      INFLUXDB3_OBJECT_STORE: file
+      INFLUXDB3_DB_DIR: /var/lib/influxdb3/data
+      INFLUXDB3_HTTP_BIND_ADDR: 0.0.0.0:8181
+      INFLUXDB3_ADMIN_TOKEN_FILE: /secrets/admin-token.json
+    volumes:
+    - influx-db:/var/lib/influxdb3
+    - /opt/influxdb3/secrets/admin-token.json:/secrets/admin-token.json:ro
+    networks:
+    - internal_net
+    - db_net
+  influxdb3-explorer:
+    image: influxdata/influxdb3-ui:1.0.0
+    deploy:
+      resources:
+        limits:
+          cpus: '0.20'
+          memory: 128M
+        reservations:
+          cpus: '0.05'
+          memory: 16M
+      restart_policy:
+        condition: any
+    command:
+    - --mode=admin
+    ports:
+    - ${EXPLORER_HTTP_PORT:-8888}:80
+    - ${EXPLORER_ADMIN_API_PORT:-8889}:8888
+    environment:
+      SESSION_SECRET_KEY: ${EXPLORER_SESSION_SECRET_KEY}
+      DATABASE_URL: /db/sqlite.db
+    volumes:
+    - influxdb3-explorer:/db:rw
+    - /opt/influxdb3/explorer-config:/app-root/config:ro
+    - ./explorer/config:/app-root/config:ro
+    networks:
+    - internal_net
+  minio:
+    image: minio/minio:latest
+    deploy:
+      resources:
+        limits:
+          cpus: '0.30'
+          memory: 128M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+      restart_policy:
+        condition: any
+    ports:
+    - 9000:9000
+    - 9001:9001
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    networks:
+    - internal_net
+    volumes:
+    - minio-data1:/data1
+    - minio-data2:/data2
+    - minio-data3:/data3
+    - minio-data4:/data4
+    - minio-data5:/data5
+    - minio-data6:/data6
+    - minio-data7:/data7
+    - minio-data8:/data8
+    - minio-data9:/data9
+    - minio-data10:/data10
+    command: server /data1 /data2 /data3 /data4 /data5 /data6 /data7 /data8 /data9
+      /data10 --console-address ":9001"
+  elasticsearch:
+    image: elasticsearch:9.1.3
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2g
+        reservations:
+          cpus: '0.5'
+          memory: 1g
+      restart_policy:
+        condition: any
+    environment:
+    - discovery.type=single-node
+    - xpack.security.enabled=true
+    - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+    - xpack.security.http.ssl.enabled=false
+    - ES_JAVA_OPTS=-Xms1g -Xmx1g
+    - TZ=${TZ}
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    ports:
+    - 9200:9200
+    volumes:
+    - elasticsearch:/usr/share/elasticsearch/data
+    networks:
+    - internal_net
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -s http://localhost:9200 >/dev/null || exit 1
+      interval: 15s
+      timeout: 5s
+      retries: 10
+  kibana:
+    image: kibana:9.1.3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.30'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+      restart_policy:
+        condition: any
+    depends_on:
+    - elasticsearch
+    environment:
+    - ELASTICSEARCH_HOSTS=${ELASTIC_HOST}
+    - TZ=${TZ}
+    - ELASTICSEARCH_SERVICEACCOUNTTOKEN=${KIBANA_SA_TOKEN}
+    - XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY=${KIBANA_ENCRYPTION_KEY}
+    - XPACK_SECURITY_ENCRYPTIONKEY=${KIBANA_SECURITY_KEY}
+    - XPACK_REPORTING_ENCRYPTIONKEY=${KIBANA_REPORTING_KEY}
+    ports:
+    - 5601:5601
+    networks:
+    - internal_net
+  fleet-server:
+    image: elastic/elastic-agent:9.1.3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.30'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+      restart_policy:
+        condition: any
+    ports:
+    - 8220:8220
+    environment:
+      FLEET_SERVER_ENABLE: 'true'
+      FLEET_SERVER_HOST: 0.0.0.0
+      FLEET_SERVER_PORT: '8220'
+      FLEET_SERVER_ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+      FLEET_SERVER_ELASTICSEARCH_HOST: http://elasticsearch:9200
+      FLEET_SERVER_ELASTICSEARCH_INSECURE: 'true'
+      FLEET_SERVER_INSECURE_HTTP: 'true'
+      FLEET_SERVER_SERVICE_TOKEN: ${FLEET_SERVER_SERVICE_TOKEN}
+      KIBANA_FLEET_SETUP: 'true'
+      KIBANA_HOST: http://kibana:5601
+      KIBANA_INSECURE: 'true'
+      KIBANA_FLEET_USERNAME: elastic
+      KIBANA_FLEET_PASSWORD: ${ELASTIC_PASSWORD}
+      TZ: ${TZ}
+    command: '/usr/bin/tini -- /usr/bin/elastic-agent run -e -E output.elasticsearch.hosts=["http://elasticsearch:9200"]
+      -E output.elasticsearch.ssl.verification_mode=none
+
+      '
+    depends_on:
+    - elasticsearch
+    - kibana
+    networks:
+    - internal_net
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -sf http://localhost:8220/api/status >/dev/null || exit 1
+      interval: 15s
+      timeout: 5s
+      retries: 10
+  elastic-agent:
+    image: elastic/elastic-agent:9.1.3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.30'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+      restart_policy:
+        condition: any
+    environment:
+    - FLEET_ENROLL=1
+    - FLEET_URL=http://fleet-server:8220
+    - FLEET_INSECURE=true
+    - FLEET_ENROLLMENT_TOKEN=${ENROLLMENT_TOKEN}
+    - ELASTICSEARCH_HOST=http://elasticsearch:9200
+    - KIBANA_HOST=http://kibana:5601
+    - TZ=${TZ}
+    volumes:
+    - /var/run/docker.sock:/var/run/docker.sock:ro
+    - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    - /var/log:/var/log:ro
+    depends_on:
+    - fleet-server
+    networks:
+    - internal_net
+  fix-perms:
+    image: alpine:3.20
+    command:
+    - /bin/sh
+    - -lc
+    - adduser -D -u ${KAFKA_UID:-1000} app && chown -R ${KAFKA_UID:-1000}:${KAFKA_GID:-1000}
+      /var/lib/kafka/data || true
+    user: 0:0
+    volumes:
+    - kafka:/var/lib/kafka/data
+    networks:
+    - internal_net
+    deploy:
+      restart_policy:
+        condition: none
+  kafka:
+    image: apache/kafka:latest
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+      restart_policy:
+        condition: any
+    environment:
+      TZ: ${TZ}
+      KAFKA_PROCESS_ROLES: ${KAFKA_PROCESS_ROLES}
+      KAFKA_NODE_ID: ${KAFKA_NODE_ID}
+      KAFKA_CONTROLLER_QUORUM_VOTERS: ${KAFKA_CONTROLLER_QUORUM_VOTERS}
+      KAFKA_LISTENERS: PLAINTEXT://:9092,PLAINTEXT_HOST://:9094,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://${HOST_IP}:${KAFKA_PORT_EXTERNAL}
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: ${KAFKA_CONTROLLER_LISTENER_NAMES}
+      KAFKA_INTER_BROKER_LISTENER_NAME: ${KAFKA_INTER_BROKER_LISTENER_NAME}
+      KAFKA_LOG_DIRS: ${KAFKA_LOG_DIRS}
+      CLUSTER_ID: ${CLUSTER_ID}
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: ${KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR}
+      KAFKA_DEFAULT_REPLICATION_FACTOR: ${KAFKA_DEFAULT_REPLICATION_FACTOR}
+      KAFKA_MIN_INSYNC_REPLICAS: ${KAFKA_MIN_INSYNC_REPLICAS}
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: ${KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS}
+      KAFKA_NUM_PARTITIONS: ${KAFKA_NUM_PARTITIONS}
+      KAFKA_LOG4J_ROOT_LOGLEVEL: ${KAFKA_LOG4J_ROOT_LOGLEVEL}
+    user: ${KAFKA_UID:-1000}:${KAFKA_GID:-1000}
+    depends_on:
+    - fix-perms
+    volumes:
+    - kafka:${KAFKA_LOG_DIRS}
+    - /etc/localtime:/etc/localtime:ro
+    - /etc/timezone:/etc/timezone:ro
+    ports:
+    - ${KAFKA_PORT_PLAINTEXT}:9092
+    - ${KAFKA_PORT_CONTROLLER}:9093
+    - ${KAFKA_PORT_EXTERNAL}:9094
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null
+        2>&1 || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
+    networks:
+    - internal_net
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'
+          memory: 128M
+        reservations:
+          cpus: '0.05'
+          memory: 16M
+      restart_policy:
+        condition: any
+    depends_on:
+    - kafka
+    environment:
+      TZ: ${TZ}
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      DYNAMIC_CONFIG_ENABLED: 'true'
+    ports:
+    - ${KAFKA_UI_PORT}:8080
+    volumes:
+    - kafka-ui:/etc/kafkaui
+    - /etc/localtime:/etc/localtime:ro
+    - /etc/timezone:/etc/timezone:ro
+    networks:
+    - internal_net
+  topic-manager:
+    build:
+      context: ./topic-manager
+    deploy:
+      resources:
+        limits:
+          cpus: '0.4'
+          memory: 256M
+        reservations:
+          cpus: '0.15'
+          memory: 64M
+      restart_policy:
+        condition: any
+    depends_on:
+    - kafka
+    environment:
+      TOPICS_JSON: ${TOPICS_JSON}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:${KAFKA_PORT_PLAINTEXT:-9092}
+      DRY_RUN: ${TOPIC_MANAGER_DRY_RUN:-false}
+      TIMEOUT_SEC: ${TOPIC_MANAGER_TIMEOUT_SEC:-30}
+      WAIT_FOR_KAFKA_SEC: ${TOPIC_MANAGER_WAIT_SEC:-60}
+      LOG_LEVEL: ${TOPIC_MANAGER_LOG_LEVEL:-DEBUG}
+      DISCOVERY_MODE: ${DISCOVERY_MODE:-db}
+      DB_LIST_ENABLE: ${DB_LIST_ENABLE:-true}
+      DB_LIST_REQ_TOPIC: ${DB_LIST_REQ_TOPIC:-db.clients.list}
+      DB_LIST_RESP_TOPIC: ${DB_LIST_RESP_TOPIC:-db.clients.list.responses}
+      DB_LIST_TIMEOUT_SEC: ${DB_LIST_TIMEOUT_SEC:-10}
+      DISCOVERY_MAX_RESULTS: ${DISCOVERY_MAX_RESULTS:-1000}
+      DISCOVERY_CACHE_FILE: ${DISCOVERY_CACHE_FILE:-/state/known_clients.json}
+      REPLIES_TOPIC: ${REPLIES_TOPIC:-server.replies}
+      REPLIES_PARTITIONS: ${REPLIES_PARTITIONS:-3}
+      REPLIES_RETENTION_MS: ${REPLIES_RETENTION_MS:-604800000}
+      REPLIES_MIN_ISR: ${REPLIES_MIN_ISR:-1}
+      REPLIES_CLEANUP_POLICY: ${REPLIES_CLEANUP_POLICY:-delete}
+      ENABLE_CLIENT_TOPICS: ${ENABLE_CLIENT_TOPICS:-true}
+      CLIENTS_STATUS_COMPACT: ${CLIENTS_STATUS_COMPACT:-true}
+      CMD_TOPIC_PREFIX: ${CMD_TOPIC_PREFIX:-cmd.}
+      CLIENT_IDS: ${CLIENT_IDS:-}
+      CLIENT_ID: ${CLIENT_ID:-}
+      CLIENT_TOPIC_SHARDS: ${CLIENT_TOPIC_SHARDS:-3}
+      PARTITIONS_DEFAULT: ${PARTITIONS_DEFAULT:-1}
+      REPLICATION_FACTOR: ${REPLICATION_FACTOR:-1}
+      DELETE_EXTRA: ${DELETE_EXTRA:-true}
+      DELETE_PREFIXES: ${DELETE_PREFIXES:-cmd.,clients.,server.,db.,mgmt.}
+    volumes:
+    - topic-manager:/state
+    - /etc/localtime:/etc/localtime:ro
+    - /etc/timezone:/etc/timezone:ro
+    networks:
+    - internal_net
+  influx-handler:
+    build:
+      context: ./influx-handler
+      dockerfile: Dockerfile
+    deploy:
+      resources:
+        limits:
+          cpus: '0.4'
+          memory: 256M
+        reservations:
+          cpus: '0.15'
+          memory: 64M
+      restart_policy:
+        condition: any
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:${KAFKA_PORT_PLAINTEXT:-9092}
+      DB_HANDLER_GROUP_ID: ${DB_HANDLER_GROUP_ID:-db-handler}
+      DB_CONSUMER_OFFSET: earliest
+      DB_REQ_TOPIC: ${DB_REQ_TOPIC:-db.register}
+      DB_RESP_TOPIC: ${DB_RESP_TOPIC:-db.register.responses}
+      DB_LIST_REQ_TOPIC: ${DB_LIST_REQ_TOPIC:-db.clients.list}
+      DB_LIST_RESP_TOPIC: ${DB_LIST_RESP_TOPIC:-db.clients.list.responses}
+      LOG_LEVEL: ${DB_HANDLER_LOG_LEVEL:-INFO}
+      INFLUX_URL: http://influx-db:8181
+      INFLUX_TOKEN: ${INFLUXDB3_AUTH_TOKEN}
+      INFLUX_ORG: ${INFLUXDB_ORG:-server-org}
+      INFLUX_BUCKET: ${INFLUXDB_BUCKET:-my-bucket}
+      IDENTITY_KEYS: ${IDENTITY_KEYS:-meta.client_id,meta.uuid,meta.serial,meta.hostname,header.client_id,header.uuid,header.serial,client_tmp_id}
+      ID_PREFIX: ${ID_PREFIX:-client-}
+      ID_REQUIRE_PREFIX: ${ID_REQUIRE_PREFIX:-true}
+      ID_MAX_LEN: ${ID_MAX_LEN:-64}
+      NORMALIZE_LOWER: ${NORMALIZE_LOWER:-true}
+      TENANT_ENABLED: ${TENANT_ENABLED:-false}
+      TENANT_KEYS: ${TENANT_KEYS:-meta.tenant,header.tenant}
+      TENANT_DEFAULT: ${TENANT_DEFAULT:-default}
+      TENANT_IN_ID: ${TENANT_IN_ID:-false}
+      DISALLOWED_IDS: ${DISALLOWED_IDS:-}
+      IDENTITY_UNIQUE: ${IDENTITY_UNIQUE:-false}
+      ACCOUNT_TABLE: ${ACCOUNT_TABLE:-account}
+      ACCOUNT_TAGS: ${ACCOUNT_TAGS:-client_id,tenant}
+      ACCOUNT_FIELDS_JSON: ${ACCOUNT_FIELDS_JSON}
+    depends_on:
+    - influx-db
+    - kafka
+    networks:
+    - db_net
+    - internal_net
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - python -c "from influxdb_client_3 import InfluxDBClient3, Point; import os;
+        c=InfluxDBClient3(host=os.getenv('INFLUX_URL'), database=os.getenv('INFLUX_DATABASE'),
+        token=os.getenv('INFLUX_TOKEN')); c.write(record=Point('hc').field('alive',1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+volumes:
+  topic-manager:
+    external: true
+  kafka:
+    external: true
+  kafka-ui:
+    external: true
+  portainer:
+    external: true
+  elasticsearch:
+    external: true
+  influx-db:
+    external: true
+  influxdb3-explorer:
+    external: true
+  minio-data1:
+    external: true
+  minio-data2:
+    external: true
+  minio-data3:
+    external: true
+  minio-data4:
+    external: true
+  minio-data5:
+    external: true
+  minio-data6:
+    external: true
+  minio-data7:
+    external: true
+  minio-data8:
+    external: true
+  minio-data9:
+    external: true
+  minio-data10:
+    external: true
+networks:
+  internal_net:
+    external: true
+  db_net:
+    external: true
+version: '3.8'
