@@ -5,14 +5,14 @@ services:
   portainer:
     image: portainer/portainer-ce:latest
     container_name: portainer
-    deploy:
-      resources:
-        limits:
-          cpus: '0.30'  # حداکثر 50% از یک هسته CPU
-          memory: 256M   # حداکثر 512 مگابایت رم
-        reservations:
-          cpus: '0.1'  # حداقل 25% از یک هسته CPU رزرو شود
-          memory: 64M   # حداقل 128 مگابایت رم رزرو شود
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: '0.30'  # حداکثر 50% از یک هسته CPU
+    #       memory: 256M   # حداکثر 512 مگابایت رم
+    #     reservations:
+    #       cpus: '0.1'  # حداقل 25% از یک هسته CPU رزرو شود
+    #       memory: 64M   # حداقل 128 مگابایت رم رزرو شود
     restart: always
     ports:
       # - "9000:9000"            # HTTP (در صورت نیاز)
@@ -34,20 +34,19 @@ services:
   influx-db:
     image: influxdb:3.4.1-core
     container_name: influx-db
-    deploy:
-      resources:
-        limits:
-          cpus: '0.50'  # حداکثر 50% از یک هسته CPU
-          memory: 256M   # حداکثر 512 مگابایت رم
-        reservations:
-          cpus: '0.25'  # حداقل 25% از یک هسته CPU رزرو شود
-          memory: 128M   # حداقل 128 مگابایت رم رزرو شود
+    mem_limit: 1g
+    mem_reservation: 264m
+    cpus: '1.0'
     restart: always
     ports:
       - "8181:8181"  # پورت HTTP/REST اصلی InfluxDB 3 Core
     healthcheck:
       # دستوری که برای بررسی سلامت اجرا می‌شود
-      test: ["CMD", "curl", "-f", "http://localhost:8181/health"]
+      test:
+        - CMD-SHELL
+        - |
+          T=$(awk -F\" '/"token":/ {print $$4}' /secrets/admin-token.json 2>/dev/null) && \
+          [ -n "$$T" ] && curl -fsS -H "Authorization: Bearer $$T" http://localhost:8181/health >/dev/null || exit 1
       # فاصله زمانی بین هر بررسی
       interval: 30s
       # مدت زمان انتظار برای پاسخ، قبل از اینکه بررسی ناموفق تلقی شود
@@ -87,14 +86,9 @@ services:
   influxdb3-explorer:
     image: influxdata/influxdb3-ui:1.0.0
     container_name: influxdb3-explorer
-    deploy:
-      resources:
-        limits:
-          cpus: '0.20'  # حداکثر 50% از یک هسته CPU
-          memory: 128M   # حداکثر 512 مگابایت رم
-        reservations:
-          cpus: '0.05'  # حداقل 25% از یک هسته CPU رزرو شود
-          memory: 16M   # حداقل 128 مگابایت رم رزرو شود
+    mem_limit: 264m
+    mem_reservation: 128m
+    cpus: '0.2'
     restart: unless-stopped
     command: ["--mode=admin"]   # admin: ساخت DB، مدیریت کانکشن‌ها، ویرایش و...
     ports:
@@ -107,6 +101,9 @@ services:
       SESSION_SECRET_KEY: "${EXPLORER_SESSION_SECRET_KEY}"
       # مسیر پایگاه SQLite داخل کانتینر (حاوی سشن/تنظیمات Explorer)
       DATABASE_URL: "/db/sqlite.db"
+      INFLUXDB3_HOST: "http://influx-db:8181"
+      INFLUXDB3_AUTH_TOKEN: "${INFLUXDB3_AUTH_TOKEN}"
+      INFLUXDB3_DATABASE: "${INFLUXDB_DATABASE:-my_database}"
       # مسیرهای سفارشی TLS در صورت نیاز:
       # SSL_CERT_PATH: "/etc/nginx/ssl/server.crt"
       # SSL_KEY_PATH:  "/etc/nginx/ssl/server.key"
@@ -123,14 +120,9 @@ services:
   minio:
     image: minio/minio:latest
     container_name: minIO
-    deploy:
-      resources:
-        limits:
-          cpus: '0.30'  # حداکثر 50% از یک هسته CPU
-          memory: 128M   # حداکثر 512 مگابایت رم
-        reservations:
-          cpus: '0.1'  # حداقل 25% از یک هسته CPU رزرو شود
-          memory: 64M   # حداقل 128 مگابایت رم رزرو شود
+    mem_limit: 128m
+    mem_reservation: 64m
+    cpus: '0.1'
     ports:
       # پورت API برای دسترسی برنامه‌ها
       - "9000:9000"
@@ -161,14 +153,9 @@ services:
   elasticsearch:
     image: elasticsearch:9.1.3
     container_name: elasticsearch
-    deploy:
-      resources:
-        limits:
-          cpus: '1.0'  # حداکثر 50% از یک هسته CPU
-          memory: 2g   # حداکثر 512 مگابایت رم
-        reservations:
-          cpus: '0.5'  # حداقل 25% از یک هسته CPU رزرو شود
-          memory: 1g   # حداقل 128 مگابایت رم رزرو شود
+    mem_limit: 3g
+    mem_reservation: 2g
+    cpus: '0.5'
     environment:
       - discovery.type=single-node
       - xpack.security.enabled=true
@@ -199,14 +186,9 @@ services:
   kibana:
     image: kibana:9.1.3
     container_name: kibana
-    deploy:
-      resources:
-        limits:
-          cpus: '0.30'  # حداکثر 50% از یک هسته CPU
-          memory: 256M   # حداکثر 512 مگابایت رم
-        reservations:
-          cpus: '0.1'  # حداقل 25% از یک هسته CPU رزرو شود
-          memory: 64M   # حداقل 128 مگابایت رم رزرو شود
+    mem_limit: 1g
+    mem_reservation: 512m
+    cpus: '0.5'
     depends_on:
       - elasticsearch
     environment:
@@ -229,14 +211,9 @@ services:
   fleet-server:
     image: elastic/elastic-agent:9.1.3
     container_name: fleet-server
-    deploy:
-      resources:
-        limits:
-          cpus: '0.30'  # حداکثر 50% از یک هسته CPU
-          memory: 256M   # حداکثر 512 مگابایت رم
-        reservations:
-          cpus: '0.1'  # حداقل 25% از یک هسته CPU رزرو شود
-          memory: 64M   # حداقل 128 مگابایت رم رزرو شود
+    mem_limit: 512m
+    mem_reservation: 256m
+    cpus: '0.2'
     ports:
       - "8220:8220"
     environment:
@@ -286,14 +263,9 @@ services:
   elastic-agent:
     image: elastic/elastic-agent:9.1.3
     container_name: elastic-agent
-    deploy:
-      resources:
-        limits:
-          cpus: '0.30'  # حداکثر 50% از یک هسته CPU
-          memory: 256M   # حداکثر 512 مگابایت رم
-        reservations:
-          cpus: '0.1'  # حداقل 25% از یک هسته CPU رزرو شود
-          memory: 64M   # حداقل 128 مگابایت رم رزرو شود
+    mem_limit: 1g
+    mem_reservation: 512m
+    cpus: '0.2'
     environment:
       - FLEET_ENROLL=1
       - FLEET_URL=http://fleet-server:8220
@@ -329,15 +301,9 @@ services:
   kafka:
     image: apache/kafka:latest
     container_name: kafka
-    deploy:
-      resources:
-        limits:
-          cpus: '1.0'  # حداکثر 50% از یک هسته CPU
-          memory: 512M   # حداکثر 512 مگابایت رم
-        reservations:
-          cpus: '0.5'  # حداقل 25% از یک هسته CPU رزرو شود
-          memory: 256M   # حداقل 128 مگابایت رم رزرو شود
-    # اجرای Kafka با KRaft تک‌نودی + سه listener
+    mem_limit: 1g
+    mem_reservation: 512m
+    cpus: '1.0'
     environment:
       TZ: ${TZ}
       # نقش‌ها/نود آیدی/رأی‌دهندگان
@@ -388,14 +354,9 @@ services:
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
     container_name: kafka-ui
-    deploy:
-      resources:
-        limits:
-          cpus: '0.2'  # حداکثر 50% از یک هسته CPU
-          memory: 128M   # حداکثر 512 مگابایت رم
-        reservations:
-          cpus: '0.05'  # حداقل 25% از یک هسته CPU رزرو شود
-          memory: 16M   # حداقل 128 مگابایت رم رزرو شود
+    mem_limit: 512m
+    mem_reservation: 128m
+    cpus: '0.2'
     depends_on:
       kafka:
         condition: service_healthy
@@ -418,19 +379,14 @@ services:
     build:
       context: ./topic-manager
     container_name: topic-manager
-    deploy:
-      resources:
-        limits:
-          cpus: '0.4'  # حداکثر 50% از یک هسته CPU
-          memory: 256M   # حداکثر 512 مگابایت رم
-        reservations:
-          cpus: '0.15'  # حداقل 25% از یک هسته CPU رزرو شود
-          memory: 64M   # حداقل 128 مگابایت رم رزرو شود
+    mem_limit: 64m
+    mem_reservation: 32m
+    cpus: '0.1'
     depends_on:
       kafka:
         condition: service_healthy
-      # db-handler:
-      #   condition: service_started
+      influx-handler:
+        condition: service_started
     environment:
       TOPICS_JSON: "${TOPICS_JSON}"
       KAFKA_BOOTSTRAP_SERVERS: "kafka:${KAFKA_PORT_PLAINTEXT:-9092}"
@@ -480,14 +436,9 @@ services:
       context: ./influx-handler
       dockerfile: Dockerfile
     container_name: influx-handler
-    deploy:
-      resources:
-        limits:
-          cpus: '0.4'  # حداکثر 50% از یک هسته CPU
-          memory: 256M   # حداکثر 512 مگابایت رم
-        reservations:
-          cpus: '0.15'  # حداقل 25% از یک هسته CPU رزرو شود
-          memory: 64M   # حداقل 128 مگابایت رم رزرو شود
+    mem_limit: 128m
+    mem_reservation: 64m
+    cpus: '0.2'
     environment:
       # Kafka
       KAFKA_BOOTSTRAP_SERVERS: "kafka:${KAFKA_PORT_PLAINTEXT:-9092}"
@@ -519,6 +470,7 @@ services:
       ACCOUNT_TABLE: "${ACCOUNT_TABLE:-account}"
       ACCOUNT_TAGS: "${ACCOUNT_TAGS:-client_id,tenant}"
       ACCOUNT_FIELDS_JSON: "${ACCOUNT_FIELDS_JSON}"
+      INFLUX_DATABASE: "${INFLUXDB_DATABASE:-app}"
     depends_on:
       influx-db:
         condition: service_healthy
