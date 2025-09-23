@@ -316,7 +316,7 @@ services:
     depends_on:
     - fix-perms
     volumes:
-    - kafka:${KAFKA_LOG_DIRS}
+    - kafka:${KAFKA_LOG_DIRS:-/var/lib/kafka/data}
     - /etc/localtime:/etc/localtime:ro
     - /etc/timezone:/etc/timezone:ro
     ports:
@@ -362,8 +362,7 @@ services:
     networks:
     - internal_net
   topic-manager:
-    build:
-      context: ./topic-manager
+    image: maniitfx/server_images:topic-manager
     deploy:
       resources:
         limits:
@@ -412,9 +411,7 @@ services:
     networks:
     - internal_net
   influx-handler:
-    build:
-      context: ./influx-handler
-      dockerfile: Dockerfile
+    image: maniitfx/server_images:influx-handler
     deploy:
       resources:
         limits:
@@ -505,7 +502,9 @@ volumes:
     external: true
 networks:
   internal_net:
-    external: true
+    driver: overlay
+    attachable: true
   db_net:
-    external: true
+    driver: overlay
+    attachable: true
 version: '3.8'
