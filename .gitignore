@@ -77,3 +77,4 @@ env.example
 .config/htop/htoprc
 influx-handler/influx_handler.py
 docker-stack.yml
+map.txt

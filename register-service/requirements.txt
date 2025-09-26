@@ -1,1 +1,2 @@
 confluent-kafka==2.11.1
+pandas==2.3.2
