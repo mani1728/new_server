@@ -487,6 +487,42 @@ services:
       retries: 3
       start_period: 10s
 
+  # ---------------------------------------------------------
+  # register-service (پل بین clients.register ↔ db.register)
+  # ---------------------------------------------------------
+  register-service:
+    build:
+      context: .
+      dockerfile: register-service/Dockerfile
+    container_name: register-service
+    depends_on:
+      kafka:
+        condition: service_healthy
+      influx-handler:
+        condition: service_started
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:${KAFKA_PORT_PLAINTEXT:-9092}"
+      LOG_LEVEL: "${LOG_LEVEL_REG:-DEBUG}"
+      REGISTER_GROUP_ID: "register-service"
+      REGISTER_TOPIC: "clients.register"
+      REGISTER_RESPONSES_TOPIC: "clients.register.responses"
+      STATUS_TOPIC: "clients.status"
+      REPLIES_TOPIC: "server.replies"
+      CMD_TOPIC_PREFIX: "${CMD_TOPIC_PREFIX:-cmd.}"
+      CLIENT_TOPIC_SHARDS: "${CLIENT_TOPIC_SHARDS:-3}"
+      PARTITIONS_DEFAULT: "${PARTITIONS_DEFAULT:-1}"
+      REPLICATION_FACTOR: "${REPLICATION_FACTOR:-1}"
+      CREATE_CMD_TOPICS: "true"
+      DB_REQ_TOPIC: "${DB_REQ_TOPIC:-db.register}"
+      DB_RESP_TOPIC: "${DB_RESP_TOPIC:-db.register.responses}"
+      DB_TIMEOUT_SEC: "${DB_TIMEOUT_SEC:-8}"
+      DB_WAIT_GROUP: "${DB_WAIT_GROUP:-register-service.dbwait}"
+      DB_FALLBACK_TO_LOCAL: "${DB_FALLBACK_TO_LOCAL:-true}"
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    restart: unless-stopped
+    networks: [internal_net]
 
 # --- تعریف والیوم‌های نام‌دار (همه external چون قبلاً ساختی) ---
 volumes:

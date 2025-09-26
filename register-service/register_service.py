@@ -3,10 +3,16 @@
 
 import os, json, time, secrets, re, uuid, logging
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Any
 
 from confluent_kafka import Consumer, Producer, KafkaException
 from confluent_kafka.admin import AdminClient, NewTopic
+
+# ---------- Optional deps ----------
+try:
+    import pandas as _pd  # برای پشتیبانی ns-precision
+except Exception:
+    _pd = None
 
 # ---------- Logging ----------
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
@@ -178,6 +184,67 @@ def wait_db_response(corr_id: str, timeout: float) -> Optional[Dict]:
         except Exception:
             pass
 
+# ---------- Timestamp utilities ----------
+
+def _digits(n: int) -> int:
+    n = abs(int(n))
+    return len(str(n))
+
+def to_iso_from_any(x: Any, fallback_days: int = 7) -> str:
+    """تبدیل هر نوع زمان (ns/us/ms/s/ISO/pandas.Timestamp) به ISO8601 UTC"""
+    # بدون مقدار → زمان آینده‌ی پیش‌فرض
+    if x is None:
+        return (datetime.utcnow().replace(tzinfo=timezone.utc) + timedelta(days=fallback_days)).isoformat()
+
+    # اگر pandas داریم از آن استفاده کنیم (ns-safe)
+    if _pd is not None:
+        try:
+            if isinstance(x, (int, float)):
+                n = int(x)
+                d = _digits(n)
+                if d >= 19:
+                    unit = "ns"
+                elif d >= 16:
+                    unit = "us"
+                elif d >= 13:
+                    unit = "ms"
+                else:
+                    unit = "s"
+                ts = _pd.to_datetime(n, unit=unit, utc=True)
+            else:
+                ts = _pd.to_datetime(x, utc=True, errors="coerce")
+            if ts is not None and not _pd.isna(ts):
+                return ts.isoformat()
+        except Exception:
+            pass  # می‌افتیم به مسیر fallback پایین
+
+    # fallback بدون pandas
+    try:
+        if isinstance(x, (int, float)):
+            n = int(x)
+            d = _digits(n)
+            if d >= 19:
+                seconds = n / 1_000_000_000  # ns
+            elif d >= 16:
+                seconds = n / 1_000_000      # us
+            elif d >= 13:
+                seconds = n / 1_000          # ms
+            else:
+                seconds = float(n)           # s
+            dt = datetime.fromtimestamp(seconds, tz=timezone.utc)
+            return dt.isoformat()
+        if isinstance(x, str):
+            # ISO با یا بدون Z
+            try:
+                return datetime.fromisoformat(x.replace("Z", "+00:00")).astimezone(timezone.utc).isoformat()
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # اگر هیچ‌کدام نشد
+    return (datetime.utcnow().replace(tzinfo=timezone.utc) + timedelta(days=fallback_days)).isoformat()
+
 def main():
     log.info("== Register Service (with db-handler) ==")
     log.info("BOOTSTRAP=%s | GROUP=%s | topics: %s / %s / DB %s→%s | shards=%s",
@@ -244,28 +311,49 @@ def main():
             # --- مرحله 2: منتظر پاسخ DB
             db_resp = wait_db_response(corr_id, DB_TIMEOUT_SEC)
 
+            # خروجی‌های احتمالی db_resp:
+            #   { "status": "ok", "client_id": "...", "auth_token": "...", "expires_at": <ns/us/ms/s/iso/ts> }
+            #   { "status": "error", "error": "..." }
+            use_fallback = False
             if not db_resp:
+                log.warning("DB response timeout for corr_id=%s", corr_id)
+                use_fallback = True
+            elif db_resp.get("status") != "ok":
+                err = db_resp.get("error") or "unknown db error"
+                log.error("DB error (corr_id=%s): %s", corr_id, err)
+                use_fallback = DB_FALLBACK_TO_LOCAL
+            else:
+                use_fallback = False
+
+            if use_fallback:
                 if not DB_FALLBACK_TO_LOCAL:
-                    log.error("DB response timeout; aborting registration.")
+                    # بدون fallback اجازه نداریم ادامه دهیم
+                    log.error("DB response not usable and fallback disabled; aborting registration.")
                     continue
-                # fallback: client_id موقتی
+                # fallback: client_id موقتی بر اساس meta
                 meta = payload.get("meta") or {}
                 identity = meta.get("client_id") or meta.get("uuid") or meta.get("serial") or client_tmp_id
                 identity = sanitize(identity)
                 client_id = f"client-{identity}" if not str(identity).startswith("client-") else identity
                 auth_token = secrets.token_urlsafe(32)
-                exp_iso = (datetime.utcnow().replace(tzinfo=timezone.utc) + timedelta(days=7)).isoformat()
-                log.warning("DB timeout → fallback client_id=%s", client_id)
+                exp_iso = to_iso_from_any(None)  # 7 روز پیش‌فرض
+                log.warning("DB fallback → client_id=%s", client_id)
             else:
-                if db_resp.get("status") != "ok":
-                    log.error("DB error: %s", db_resp.get("error"))
-                    continue
                 client_id = sanitize(db_resp.get("client_id") or "")
                 if not client_id:
-                    log.error("DB response missing client_id")
-                    continue
+                    if DB_FALLBACK_TO_LOCAL:
+                        log.error("DB response missing client_id; switching to fallback.")
+                        meta = payload.get("meta") or {}
+                        identity = meta.get("client_id") or meta.get("uuid") or meta.get("serial") or client_tmp_id
+                        identity = sanitize(identity)
+                        client_id = f"client-{identity}" if not str(identity).startswith("client-") else identity
+                        use_fallback = True
+                    else:
+                        log.error("DB response missing client_id and fallback disabled; abort.")
+                        continue
+
                 auth_token = db_resp.get("auth_token") or secrets.token_urlsafe(32)
-                exp_iso = (datetime.utcnow().replace(tzinfo=timezone.utc) + timedelta(days=7)).isoformat()
+                exp_iso = to_iso_from_any(db_resp.get("expires_at"))  # ← تبدیل امن هر نوع timestamp
 
             # --- مرحله 3: ساخت تاپیک‌های cmd.<client_id>.* و ارسال پاسخ
             ensure_cmd_topics(ac, client_id)
@@ -274,6 +362,7 @@ def main():
 
             recent_corr_ids.add(corr_id)
             if len(recent_corr_ids) > MAX_RECENT:
+                # set.pop() یکی از اعضا را حذف می‌کند (ترتیب ندارد)؛ برای ما کافی است
                 recent_corr_ids.pop()
             log.info("✔ registered client_id=%s (tmp=%s) corr_id=%s", client_id, client_tmp_id, corr_id)
 
